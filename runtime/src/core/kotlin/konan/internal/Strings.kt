@@ -88,7 +88,7 @@ public fun String.decapitalize(): String {
 /**
  * Returns `true` if this string is empty or consists solely of whitespace characters.
  */
-public fun CharSequence.isBlank(): Boolean = length == 0 || indices.all { this[it].isWhitespace() }
+//public fun CharSequence.isBlank(): Boolean = length == 0 || indices.all { this[it].isWhitespace() }
 
 /**
  * Returns the substring of this string starting at the [startIndex] and ending right before the [endIndex].

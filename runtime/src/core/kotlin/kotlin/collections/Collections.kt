@@ -63,6 +63,26 @@ public fun <T> listOf(vararg elements: T): List<T> = if (elements.size > 0) elem
 @kotlin.internal.InlineOnly
 public inline fun <T> listOf(): List<T> = emptyList()
 
-/** Returns a new [MutableList] with the given elements. */
-public fun <T> mutableListOf(vararg elements: T): MutableList<T>
-        = if (elements.size == 0) ArrayList() else ArrayList(ArrayAsCollection(elements, isVarargs = true))
+/**
+ * Classes that inherit from this interface can be represented as a sequence of elements that can
+ * be iterated over.
+ * @param T the type of element being iterated over.
+ */
+public interface Iterable<out T> {
+    /**
+     * Returns an iterator over the elements of this object.
+     */
+    public operator fun iterator(): Iterator<T>
+}
+
+// copies typed varargs array to array of objects
+// TODO: generally wrong, wrt specialization.
+@FixmeSpecialization
+private fun <T> Array<out T>.copyToArrayOfAny(isVarargs: Boolean): Array<Any?> =
+        if (isVarargs)
+            // if the array came from varargs and already is array of Any, copying isn't required.
+            @Suppress("UNCHECKED_CAST") (this as Array<Any?>)
+        else
+            @Suppress("UNCHECKED_CAST") (this.copyOfUninitializedElements(this.size) as Array<Any?>)
+
+
