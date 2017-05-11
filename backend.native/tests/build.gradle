@@ -1726,6 +1726,15 @@ task inline25(type: RunKonanTest) {
     source = "codegen/inline/inline25.kt"
 }
 
+task inline_constructor0(type: RunKonanTest) {
+    disabled = true
+    goldValue = 
+        "a variable in inline constructor: 23\n" +
+        "a variable initialized by inline constructor: 19\n" +
+        "a variable in inline constructor: 19\n"
+    source = "codegen/inline/inline_constructor0.kt"
+}
+
 task deserialized_inline0(type: RunKonanTest) {
     source = "serialization/deserialized_inline0.kt"
 }
