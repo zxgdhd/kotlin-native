@@ -16,6 +16,7 @@
 
 package org.jetbrains.kotlin.gradle.plugin.model
 
+import java.io.File
 import java.io.Serializable
 
 /**
@@ -25,9 +26,15 @@ import java.io.Serializable
 interface KonanModel : Serializable {
     val konanVersion: String
     val artifacts: List<KonanArtifact>
+    val interopTasks: List<KonanInterop>
 }
 
 interface KonanArtifact : Serializable {
     val name: String
     val path: String
+}
+
+interface KonanInterop : Serializable {
+    val name: String
+    val stubsDir: File
 }

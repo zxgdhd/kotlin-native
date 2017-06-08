@@ -19,7 +19,9 @@ package org.jetbrains.kotlin.gradle.plugin
 import org.gradle.api.Project
 import org.gradle.tooling.provider.model.ToolingModelBuilder
 import org.jetbrains.kotlin.gradle.plugin.model.KonanArtifact
+import org.jetbrains.kotlin.gradle.plugin.model.KonanInterop
 import org.jetbrains.kotlin.gradle.plugin.model.KonanModel
+import java.io.File
 
 object KonanToolingModelBuilder : ToolingModelBuilder {
     override fun canBuild(modelName: String): Boolean = KonanModel::class.java.name == modelName
@@ -28,13 +30,17 @@ object KonanToolingModelBuilder : ToolingModelBuilder {
         val artifacts = project.supportedCompileTasks
                 .toList()
                 .map { KonanArtifactImpl(it.artifactName, it.artifactPath) }
-        return KonanModelImpl(project.konanVersion, artifacts)
+        val interopTasks = project.supportedInteropTasks
+                .toList()
+                .map { KonanInteropImpl(it.name, it.stubsDir) }
+        return KonanModelImpl(project.konanVersion, artifacts, interopTasks)
     }
 }
 
 private class KonanModelImpl(
         override val konanVersion: String,
-        override val artifacts: List<KonanArtifact>
+        override val artifacts: List<KonanArtifact>,
+        override val interopTasks: List<KonanInterop>
 ) : KonanModel
 
 
@@ -42,3 +48,8 @@ private class KonanArtifactImpl(
         override val name: String,
         override val path: String
 ) : KonanArtifact
+
+private class KonanInteropImpl(
+        override val name: String,
+        override val stubsDir: File
+) : KonanInterop
