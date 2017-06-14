@@ -199,9 +199,9 @@ class KonanSourceSets {
 
     companion object {
         class KonanKotlin() {
-            var srcDirs: Collection<String> = ArrayList<String>()
+            var srcDirs: MutableList<String> = ArrayList<String>()
             init {
-                srcDirs += "src/main/kotlin"
+                srcDirs.add("src/main/kotlin")
             }
         }
 
