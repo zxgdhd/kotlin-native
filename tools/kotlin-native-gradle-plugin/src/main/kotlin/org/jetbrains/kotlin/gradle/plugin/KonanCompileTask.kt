@@ -30,8 +30,6 @@ import java.io.File
  *
  *      artifactName1 {
  *
- *          inputFiles "files" "to" "be" "compiled"
- *
  *          outputDir "path/to/output/dir"
  *
  *          library "path/to/library"
@@ -56,7 +54,6 @@ import java.io.File
  *
  *          extends artifactName1
  *
- *          inputDir "someDir"
  *          outputDir "someDir"
  *     }
  *
@@ -99,7 +96,7 @@ open class KonanCompileTask: DefaultTask() {
 
     // Other compilation parameters -------------------------------------------
 
-    @InputFiles val inputFiles      = mutableSetOf<FileCollection>()
+    @InputFiles val inputFiles      = mutableSetOf<Iterable<File>>()
 
     @InputFiles val libraries       = mutableSetOf<FileCollection>()
     @InputFiles val nativeLibraries = mutableSetOf<FileCollection>()
@@ -150,11 +147,7 @@ open class KonanCompileTask: DefaultTask() {
         addKey("-opt", enableOptimization)
         addKey("-ea", enableAssertions)
 
-        (if (inputFiles.isEmpty()) {
-            project.fileTree("${project.projectDir.canonicalPath}/src/main/kotlin")
-        } else {
-            inputFiles.flatMap { it.files }
-        }).filter { it.name.endsWith(".kt") }.mapTo(this) { it.canonicalPath }
+        inputFiles.flatten().filter { it.name.endsWith(".kt") }.mapTo(this) { it.canonicalPath }
     }
 
     @TaskAction
@@ -235,16 +228,7 @@ open class KonanCompileConfig(
     }
 
     // DSL. Input/output files
-
-    fun inputDir(dir: String) = with(compilationTask) {
-        inputFiles.add(project.fileTree(dir))
-    }
-    fun inputFiles(vararg files: Any) = with(compilationTask) {
-        inputFiles.add(project.files(files))
-    }
-    fun inputFiles(files: FileCollection) = compilationTask.inputFiles.add(files)
-    fun inputFiles(files: Collection<FileCollection>) = compilationTask.inputFiles.addAll(files)
-
+    internal fun inputFiles(files: Iterable<File>) = compilationTask.inputFiles.add(files)
 
     fun outputDir(dir: Any) = with(compilationTask) {
         outputDir = project.file(dir)

@@ -16,6 +16,8 @@
 
 package org.jetbrains.kotlin.gradle.plugin
 
+import groovy.lang.Closure
+import groovy.lang.DelegatesTo
 import org.gradle.api.DefaultTask
 import org.gradle.api.Plugin
 import org.gradle.api.Project
@@ -26,6 +28,7 @@ import org.gradle.api.internal.project.ProjectInternal
 import org.gradle.api.tasks.TaskCollection
 import org.gradle.internal.reflect.Instantiator
 import org.gradle.tooling.provider.model.ToolingModelBuilderRegistry
+import java.io.File
 import javax.inject.Inject
 
 /**
@@ -51,6 +54,8 @@ internal val Project.konanArtifactsContainer: KonanArtifactsContainer
     get() = extensions.getByName(KonanPlugin.COMPILER_EXTENSION_NAME) as KonanArtifactsContainer
 internal val Project.konanInteropContainer: KonanInteropContainer
     get() = extensions.getByName(KonanPlugin.INTEROP_EXTENSION_NAME) as KonanInteropContainer
+internal val Project.konanSourceSets: KonanSourceSets
+    get() = extensions.getByName(KonanPlugin.SOURCE_SETS_EXTENSION_NAME) as KonanSourceSets
 
 internal val Project.konanCompilerDownloadTask  get() = tasks.getByName(KonanPlugin.KONAN_DOWNLOAD_TASK_NAME)
 
@@ -88,7 +93,9 @@ class KonanArtifactsContainer(val project: ProjectInternal): AbstractNamedDomain
         project.gradle.services.get(Instantiator::class.java)) {
 
     override fun doCreate(name: String): KonanCompileConfig =
-            KonanCompileConfig(name, project)
+            KonanCompileConfig(name, project).apply {
+                inputFiles(project.srcDirs().flatMap { project.fileTree(it) })
+            }
 }
 
 class KonanInteropContainer(val project: ProjectInternal): AbstractNamedDomainObjectContainer<KonanInteropConfig>(
@@ -187,6 +194,49 @@ private fun String.isSupported(): Boolean {
     }
 }
 
+class KonanSourceSets {
+    val main: Main = Main()
+
+    companion object {
+        class KonanKotlin() {
+            var srcDirs: Collection<String> = ArrayList<String>()
+            init {
+                srcDirs += "src/main/kotlin"
+            }
+        }
+
+        class Main() {
+            val kotlin: KonanKotlin = KonanKotlin()
+
+            fun kotlin(@DelegatesTo(KonanKotlin::class, strategy = Closure.DELEGATE_FIRST) closure: Closure<Unit>): KonanKotlin {
+                closure.delegate = kotlin
+                closure.resolveStrategy = Closure.DELEGATE_FIRST
+                closure.call()
+                return kotlin
+            }
+        }
+    }
+
+    fun main(@DelegatesTo(Main::class, strategy = Closure.DELEGATE_ONLY) closure: Closure<Unit>): Main {
+        closure.delegate = main
+        closure.resolveStrategy = Closure.DELEGATE_ONLY
+        closure.call()
+        return main
+    }
+
+    fun sourceSets(): Collection<String> {
+        val sets = ArrayList<String>()
+        sets.addAll(main.kotlin.srcDirs)
+        return sets
+    }
+}
+
+internal fun Project.srcDirs(): Collection<File> {
+    return project.konanSourceSets.sourceSets().map { path ->
+        File(project.projectDir.canonicalPath + "/" + path)
+    }
+}
+
 
 class KonanPlugin @Inject constructor(private val registry: ToolingModelBuilderRegistry)
     : Plugin<ProjectInternal> {
@@ -194,6 +244,7 @@ class KonanPlugin @Inject constructor(private val registry: ToolingModelBuilderR
     companion object {
         internal const val COMPILER_EXTENSION_NAME = "konanArtifacts"
         internal const val INTEROP_EXTENSION_NAME = "konanInterop"
+        internal const val SOURCE_SETS_EXTENSION_NAME = "sourceSets"
         internal const val KONAN_DOWNLOAD_TASK_NAME = "downloadKonanCompiler"
 
         internal const val KONAN_HOME_PROPERTY_NAME = "konan.home"
@@ -224,6 +275,7 @@ class KonanPlugin @Inject constructor(private val registry: ToolingModelBuilderR
         project.tasks.create(KONAN_DOWNLOAD_TASK_NAME, KonanCompilerDownloadTask::class.java)
         project.extensions.add(COMPILER_EXTENSION_NAME, KonanArtifactsContainer(project))
         project.extensions.add(INTEROP_EXTENSION_NAME, KonanInteropContainer(project))
+        project.extensions.add(SOURCE_SETS_EXTENSION_NAME, KonanSourceSets())
         if (!project.extensions.extraProperties.has(KonanPlugin.KONAN_HOME_PROPERTY_NAME)) {
             project.extensions.extraProperties.set(KonanPlugin.KONAN_HOME_PROPERTY_NAME, project.konanCompilerDownloadDir())
         }

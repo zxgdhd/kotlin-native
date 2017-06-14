@@ -33,14 +33,15 @@ object KonanToolingModelBuilder : ToolingModelBuilder {
         val interopTasks = project.supportedInteropTasks
                 .toList()
                 .map { KonanInteropImpl(it.name, it.stubsDir) }
-        return KonanModelImpl(project.konanVersion, artifacts, interopTasks)
+        return KonanModelImpl(project.konanVersion, artifacts, interopTasks, project.srcDirs().toList())
     }
 }
 
 private class KonanModelImpl(
         override val konanVersion: String,
         override val artifacts: List<KonanArtifact>,
-        override val interopTasks: List<KonanInterop>
+        override val interopTasks: List<KonanInterop>,
+        override val srcDirs: List<File>
 ) : KonanModel
 
 

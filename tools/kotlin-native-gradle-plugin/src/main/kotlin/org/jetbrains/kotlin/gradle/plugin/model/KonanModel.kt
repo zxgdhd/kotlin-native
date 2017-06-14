@@ -27,6 +27,7 @@ interface KonanModel : Serializable {
     val konanVersion: String
     val artifacts: List<KonanArtifact>
     val interopTasks: List<KonanInterop>
+    val srcDirs: List<File>
 }
 
 interface KonanArtifact : Serializable {
