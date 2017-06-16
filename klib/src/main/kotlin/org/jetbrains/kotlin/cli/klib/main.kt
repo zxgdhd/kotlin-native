@@ -3,7 +3,7 @@ package org.jetbrains.kotlin.cli.klib
 import kotlin.system.exitProcess
 import java.util.Properties
 // TODO: Extract these as a shared jar?
-import org.jetbrains.kotlin.backend.konan.library.SplitLibraryReader
+import org.jetbrains.kotlin.backend.konan.library.impl.SplitLibraryReader
 import org.jetbrains.kotlin.backend.konan.util.File
 import org.jetbrains.kotlin.backend.konan.util.copyTo
 import org.jetbrains.kotlin.backend.konan.TargetManager

@@ -18,13 +18,14 @@ package org.jetbrains.kotlin.backend.konan
 
 import com.intellij.openapi.project.Project
 import org.jetbrains.kotlin.backend.konan.library.KonanLibraryReader
-import org.jetbrains.kotlin.backend.konan.library.SplitLibraryReader
 import org.jetbrains.kotlin.backend.konan.library.KonanLibrarySearchPathResolver
+import org.jetbrains.kotlin.backend.konan.library.impl.KonanKotlinSpecifics
+import org.jetbrains.kotlin.backend.konan.library.impl.SplitLibraryReader
+import org.jetbrains.kotlin.backend.konan.util.File
 import org.jetbrains.kotlin.backend.konan.util.profile
 import org.jetbrains.kotlin.config.CommonConfigurationKeys
 import org.jetbrains.kotlin.config.CompilerConfiguration
 import org.jetbrains.kotlin.descriptors.impl.ModuleDescriptorImpl
-import org.jetbrains.kotlin.backend.konan.util.File
 
 class KonanConfig(val project: Project, val configuration: CompilerConfiguration) {
 
@@ -64,7 +65,7 @@ class KonanConfig(val project: Project, val configuration: CompilerConfiguration
     fun loadLibMetadata(): List<ModuleDescriptorImpl> {
 
         val allMetadata = mutableListOf<ModuleDescriptorImpl>()
-        val specifics = configuration.get(CommonConfigurationKeys.LANGUAGE_VERSION_SETTINGS)!!
+        val specifics = KonanKotlinSpecifics(configuration.get(CommonConfigurationKeys.LANGUAGE_VERSION_SETTINGS)!!)
 
         for (klib in libraries) {
             profile("Loading ${klib.libraryName}") {

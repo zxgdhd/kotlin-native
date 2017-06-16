@@ -30,7 +30,7 @@ import org.jetbrains.kotlin.backend.konan.PhaseManager
 import org.jetbrains.kotlin.backend.konan.descriptors.*
 import org.jetbrains.kotlin.backend.konan.ir.*
 import org.jetbrains.kotlin.backend.konan.library.KonanLibraryWriter
-import org.jetbrains.kotlin.backend.konan.library.SplitLibraryWriter
+import org.jetbrains.kotlin.backend.konan.library.impl.SplitLibraryWriter
 import org.jetbrains.kotlin.builtins.KotlinBuiltIns
 import org.jetbrains.kotlin.descriptors.*
 import org.jetbrains.kotlin.incremental.components.NoLookupLocation
