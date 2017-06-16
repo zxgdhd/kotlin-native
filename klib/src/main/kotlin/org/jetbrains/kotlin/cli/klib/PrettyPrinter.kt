@@ -26,7 +26,7 @@ import java.lang.System.out
 class PrettyPrinter(val library: Base64, val packageLoader: (String) -> Base64) {
 
     private val moduleHeader: KonanLinkData.Library
-        get() = parseModuleHeader(library)
+        get() = parseModuleHeader(base64ToStream(library))
 
     fun packageFragment(fqname: String): KonanLinkData.PackageFragment 
         = parsePackageFragment(base64ToStream(packageLoader(fqname)))

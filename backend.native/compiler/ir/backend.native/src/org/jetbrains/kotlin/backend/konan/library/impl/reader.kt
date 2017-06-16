@@ -57,7 +57,7 @@ abstract class FileBasedLibraryReader(
                                       moduleName: String): ModuleDescriptorImpl {
             val moduleDescriptor = kotlinSpecifics.createModuleDescriptor(moduleName)
             kotlinSpecifics.kotlinBuildIns.builtInsModule = moduleDescriptor
-            val libraryProto = parseModuleHeader(library)
+            val libraryProto = parseModuleHeader(kotlinSpecifics.base64toStream(library))
             val provider = createKonanPackageFragmentProvider(
                     libraryProto.packageFragmentNameList,
                     {it -> parsePackageFragment(kotlinSpecifics.base64toStream(packageLoader(it))) },

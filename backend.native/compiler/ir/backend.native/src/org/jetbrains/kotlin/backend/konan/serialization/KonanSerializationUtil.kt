@@ -84,9 +84,8 @@ object NullFlexibleTypeDeserializer : FlexibleTypeDeserializer {
 public fun parsePackageFragment(inputStream: InputStream): PackageFragment =
     PackageFragment.parseFrom(inputStream, KonanSerializerProtocol.extensionRegistry)
 
-public fun parseModuleHeader(base64: Base64): Library =
-    Library.parseFrom(base64ToStream(base64),
-        KonanSerializerProtocol.extensionRegistry)
+public fun parseModuleHeader(inputStream: InputStream): Library =
+    Library.parseFrom(inputStream, KonanSerializerProtocol.extensionRegistry)
 
 
 /* ------------ Serializer part ------------------------------------------*/
