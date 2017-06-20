@@ -17,6 +17,7 @@
 package org.jetbrains.kotlin.backend.konan
 
 import org.jetbrains.kotlin.analyzer.AnalysisResult
+import org.jetbrains.kotlin.backend.common.ir.cfg.CfgSelector
 import org.jetbrains.kotlin.backend.common.validateIrModule
 import org.jetbrains.kotlin.backend.konan.ir.DeserializerDriver
 import org.jetbrains.kotlin.backend.konan.ir.KonanSymbols
@@ -103,6 +104,7 @@ public fun runTopLevelPhases(konanConfig: KonanConfig, environment: KotlinCoreEn
     }
     phaser.phase(KonanPhase.BACKEND) {
         phaser.phase(KonanPhase.LOWER) {
+            CfgSelector(context).select()
             KonanLower(context).lower()
             validateIrModule(context, context.ir.irModule)
             context.ir.moduleIndexForCodegen = ModuleIndex(context.ir.irModule)
