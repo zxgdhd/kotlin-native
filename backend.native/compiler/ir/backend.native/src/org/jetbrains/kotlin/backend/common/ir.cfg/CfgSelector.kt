@@ -10,18 +10,22 @@ import org.jetbrains.kotlin.ir.IrStatement
 import org.jetbrains.kotlin.ir.declarations.IrFunction
 import org.jetbrains.kotlin.ir.expressions.*
 import org.jetbrains.kotlin.ir.visitors.IrElementVisitorVoid
+import org.jetbrains.kotlin.resolve.descriptorUtil.fqNameSafe
 
 //-----------------------------------------------------------------------------//
 
 internal class CfgSelector(val context: Context): IrElementVisitorVoid {
+    val ir = Ir()
 
     fun select() {
         context.irModule!!.accept(this, null)
+        ir.log()
     }
 
     //-------------------------------------------------------------------------//
 
     override fun visitFunction(declaration: IrFunction) {
+        ir.newFunction(declaration.descriptor.fqNameSafe.toString())
         super.visitFunction(declaration)
         val statements = (declaration.body as IrBlockBody).statements
         statements.forEach { selectStatement(it) }
@@ -33,16 +37,23 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
 
         when (statement) {
 //            is IrGetValue -> return evaluateGetValue(statement)
+            is IrCall   -> evaluateCall(statement)
             else                     -> {
-                TODO(ir2string(statement))
+                println(statement.toString())
             }
         }
     }
 
     //-------------------------------------------------------------------------//
 
+    private fun evaluateCall(irCall: IrCall) {
+
+    }
+
+    //-------------------------------------------------------------------------//
+
     override fun visitElement(element: IrElement) {
-        super.visitElement(element, null)
+        element.acceptChildren(this, null)
     }
 }
 

@@ -88,6 +88,8 @@ class Ir {
     val functions  = mutableMapOf<String, Function>()
     val classes    = mutableMapOf<String, Class>()
     val globalInit = Function("globalInit")
+
+    fun newFunction(name: String) { functions[name] = Function(name) }
 }
 
 //-----------------------------------------------------------------------------//

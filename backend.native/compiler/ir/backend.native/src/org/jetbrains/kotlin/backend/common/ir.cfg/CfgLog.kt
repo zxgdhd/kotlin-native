@@ -32,8 +32,10 @@ fun Function.log() {
     val typeParametersStr  = reifiedTypes.joinToString()
     val valueParametersStr = parameters.joinToString(", ", "", "", -1, "", { it.toStr() })                 // Function parameters as string.
     println("fun <$typeParametersStr> $name($valueParametersStr) {")                                                            // Print function declaration.
-    val blocks = search(enter!!)                                                            // Get basic blocks of function body.
-    blocks.reversed().forEach(Block::log)                                                   // Print the blocks.
+    if (enter != null) {
+        val blocks = search(enter!!)                                                            // Get basic blocks of function body.
+        blocks.reversed().forEach(Block::log)                                                   // Print the blocks.
+    }
     println("}")
 }
 
@@ -45,6 +47,13 @@ fun Class.log() {
     fields.forEach  { println("    field ${it.toStr()}") }
     methods.forEach { println("    fun   ${it}") }
     println("}")
+}
+
+//-----------------------------------------------------------------------------//
+
+fun Ir.log() {
+
+    functions.forEach { it.value.log() }
 }
 
 //-----------------------------------------------------------------------------//
