@@ -351,7 +351,7 @@ internal class Context(config: KonanConfig) : KonanBackendContext(config) {
     }
 
     override fun log(message: () -> String) {
-        if (phase?.verbose ?: false) {
+        if (phase?.verbose == true) {
             println(message())
         }
     }

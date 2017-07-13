@@ -1975,7 +1975,7 @@ internal class CodeGeneratorVisitor(val context: Context) : IrElementVisitorVoid
         val brResult = if (isUnconditional(branch)) {                                // It is the "else" clause.
             evaluateExpression(branchResult)                                         // Generate clause body.
         } else {                                                                     // It is conditional clause.
-            val bbCase = codegen.basicBlock("when_case")                             // Create block for clause body.
+            val bbCase = codegen.basicBlock("when_case")                            // Create block for clause body.
             val condition = evaluateExpression(branch.condition)                     // Generate cmp instruction.
             codegen.condBr(condition, bbCase, bbNext)                                // Conditional branch depending on cmp result.
             codegen.positionAtEnd(bbCase)                                            // Switch generation to block for clause body.

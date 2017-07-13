@@ -52,7 +52,7 @@ fun Class.log() {
 //-----------------------------------------------------------------------------//
 
 fun Ir.log() {
-
+    println("IR representation")
     functions.forEach { it.value.log() }
 }
 

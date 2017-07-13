@@ -1,5 +1,7 @@
 package org.jetbrains.kotlin.backend.common.ir.cfg
 
+import org.jetbrains.kotlin.types.KotlinType
+
 //-----------------------------------------------------------------------------//
 
 val typeDouble  = Type(SimpleType.double)
@@ -12,6 +14,8 @@ val typeChar    = Type(SimpleType.char)
 val typeString  = Type(SimpleType.string)
 val typeBoolean = Type(SimpleType.boolean)
 val typePointer = Type(SimpleType.pointer)
+
+val Null = Constant(typePointer, 0)
 
 //--- Operand -----------------------------------------------------------------//
 
@@ -119,7 +123,7 @@ fun Block.br(target: Block) {
 
 //-----------------------------------------------------------------------------//
 
-fun Block.condBr(condition: Variable, targetTrue: Block, targetFalse: Block) {
+fun Block.condBr(condition: Operand, targetTrue: Block, targetFalse: Block) {
 
     val instruction = newInstruction(Opcode.condbr)
     val targetTrueOperand  = Constant(typePointer, targetTrue)

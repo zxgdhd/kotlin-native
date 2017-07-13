@@ -104,10 +104,12 @@ public fun runTopLevelPhases(konanConfig: KonanConfig, environment: KotlinCoreEn
     }
     phaser.phase(KonanPhase.BACKEND) {
         phaser.phase(KonanPhase.LOWER) {
-            CfgSelector(context).select()
             KonanLower(context).lower()
             validateIrModule(context, context.ir.irModule)
             context.ir.moduleIndexForCodegen = ModuleIndex(context.ir.irModule)
+        }
+        phaser.phase(KonanPhase.CFG) {
+            CfgSelector(context).select()
         }
         phaser.phase(KonanPhase.BITCODE) {
             emitLLVM(context)
