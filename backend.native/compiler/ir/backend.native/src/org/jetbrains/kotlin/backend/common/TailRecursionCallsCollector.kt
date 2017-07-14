@@ -149,7 +149,7 @@ fun collectTailRecursionCalls(irFunction: IrFunction): Set<IrCall> {
 private enum class ElementKind {
     /**
      * This element is the last statement to be executed before the return from the selectFunction.
-     * If the return type is not `CfgUnit`, the result of this statement defines the result of the entire selectFunction.
+     * If the return type is not `Unit`, the result of this statement defines the result of the entire selectFunction.
      */
     TAIL_STATEMENT,
 

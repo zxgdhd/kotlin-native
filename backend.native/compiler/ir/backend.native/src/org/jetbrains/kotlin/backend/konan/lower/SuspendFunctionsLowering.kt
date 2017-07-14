@@ -817,7 +817,7 @@ internal class SuspendFunctionsLowering(val context: Context): DeclarationContai
                                 statements.forEach { +it }
                             })
                     if (irFunction.descriptor.returnType!!.isUnit())
-                        +irReturn(irGetObject(symbols.unit))                             // Insert explicit return for CfgUnit functions.
+                        +irReturn(irGetObject(symbols.unit))                             // Insert explicit return for Unit functions.
                 }
                 return function
             }

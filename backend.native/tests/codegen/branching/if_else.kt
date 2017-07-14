@@ -1,12 +1,13 @@
-fun if_else(b: Boolean): Int {
-  if (b) return 42
-  println("not yet")
-  return 24
-}
 
 fun main(args: Array<String>) {
+  println("before loop")
   while (args.size > 0) {
-    println("hello")
+    println("before inner loop")
+    while (args.size <= 0) {
+      println("in inner loop")
+      break
+    }
+    println("after inner loop")
   }
   println("bye")
 }

@@ -7,7 +7,6 @@ import org.jetbrains.kotlin.ir.IrElement
 import org.jetbrains.kotlin.ir.IrStatement
 import org.jetbrains.kotlin.ir.declarations.IrFunction
 import org.jetbrains.kotlin.ir.expressions.*
-import org.jetbrains.kotlin.ir.expressions.impl.IrBlockImpl
 import org.jetbrains.kotlin.ir.symbols.IrValueSymbol
 import org.jetbrains.kotlin.ir.symbols.IrVariableSymbol
 import org.jetbrains.kotlin.ir.visitors.IrElementVisitorVoid
@@ -20,7 +19,7 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
 
     fun select() {
         context.irModule!!.accept(this, null)
-        context.log { generate.log(); "Complete" }
+        context.log { generate.log(); "" }
     }
 
     //-------------------------------------------------------------------------//
@@ -33,7 +32,6 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
 
     //-------------------------------------------------------------------------//
 
-    // TODO: maybe selectFunction arg is not needed
     private fun selectStatement(statement: IrStatement) {
         when (statement) {
             is IrExpression -> evaluateExpression(statement)
@@ -49,6 +47,8 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
             is IrContainerExpression -> evaluateContainerExpression(expression)
             is IrConst<*> -> evaluateConst(expression)
             is IrWhileLoop -> evaluateWhileLoop(expression)
+            is IrBreak -> evaluateBreak(expression)
+            is IrContinue -> generate.selectContinue(expression)
             is IrReturn -> evaluateReturn(expression)
             is IrWhen -> evaluateWhen(expression)
     //        is IrVariableSymbol -> evaluateVariableSymbol(expression)
@@ -58,6 +58,8 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
             }
         }
     }
+
+    private fun evaluateBreak(expression: IrBreak): Operand = generate.selectBreak(expression)
 
     private fun evaluateContainerExpression(expression: IrContainerExpression): Operand {
 
@@ -69,7 +71,7 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
                 selectStatement(it)
             }
         }
-        return Constant(CfgUnit, 0)
+        return CfgUnit
     }
 
     private fun evaluateVariableSymbol(irVariableSymbol: IrVariableSymbol): Operand = TODO()
@@ -85,9 +87,8 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
         val evaluated = evaluateExpression(irReturn.value)
 
         generate.ret(evaluated)
-        // TODO: Introduce CfgUnit type
         return if (target.returnsUnit()) {
-            Null
+            CfgUnit
         } else {
             evaluated
         }

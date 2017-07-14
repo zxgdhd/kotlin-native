@@ -558,7 +558,7 @@ class PackageFragmentPrinter(val packageFragment: KonanLinkData.PackageFragment,
 
     fun returnTypeToString(protoFunction: ProtoBuf.Function): String {
         val returnType = typeToString(protoFunction.returnTypeId)
-        if (returnType == "CfgUnit") return ""
+        if (returnType == "Unit") return ""
         return ": " + returnType
     }
 

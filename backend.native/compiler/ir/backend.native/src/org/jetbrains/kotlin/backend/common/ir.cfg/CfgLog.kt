@@ -29,14 +29,15 @@ fun Block.log() {
 
 fun Function.log() {
 
-    val typeParametersStr  = reifiedTypes.joinToString()
-    val valueParametersStr = parameters.joinToString(", ", "", "", -1, "", { it.toStr() })                 // Function parameters as string.
-    println("fun <$typeParametersStr> $name($valueParametersStr) {")                                                            // Print selectFunction declaration.
-    if (enter != null) {
-        val blocks = search(enter!!)                                                            // Get basic blocks of selectFunction body.
-        blocks.reversed().forEach(Block::log)                                                   // Print the blocks.
-    }
-    println("}")
+//    val typeParametersStr  = reifiedTypes.joinToString()
+//    val valueParametersStr = parameters.joinToString(", ", "", "", -1, "", { it.toStr() })                 // Function parameters as string.
+//    println("fun <$typeParametersStr> $name($valueParametersStr) {")                                                            // Print selectFunction declaration.
+//    if (enter != null) {
+//        val blocks = search(enter!!)                                                            // Get basic blocks of selectFunction body.
+//        blocks.reversed().forEach(Block::log)                                                   // Print the blocks.
+//    }
+//    println("}")
+    enter?.let { dot(it) }
 }
 
 //-----------------------------------------------------------------------------//
@@ -52,7 +53,6 @@ fun Class.log() {
 //-----------------------------------------------------------------------------//
 
 fun Ir.log() {
-    println("IR representation")
     functions.forEach { it.value.log() }
 }
 

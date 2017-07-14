@@ -27,8 +27,6 @@ class KtType(val kotlinType: KotlinType) : Type(SimpleType.pointer) {
     override fun toString() = kotlinType.toString()
 }
 
-object CfgUnit : Type(SimpleType.pointer)
-
 //-----------------------------------------------------------------------------//
 
 abstract class Operand(val type: Type) {

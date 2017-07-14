@@ -178,7 +178,7 @@ internal interface CodeContext {
     /**
      * Generates `return` [value] operation.
      *
-     * @param value may be null iff target type is `CfgUnit`.
+     * @param value may be null iff target type is `Unit`.
      */
     fun genReturn(target: CallableDescriptor, value: LLVMValueRef?)
 
@@ -773,7 +773,7 @@ internal class CodeGeneratorVisitor(val context: Context) : IrElementVisitorVoid
      *
      * This class is designed to be used to generate Kotlin expressions that have a value and require branching.
      *
-     * [valuePhi] may be `null`, which would mean `CfgUnit` value is passed.
+     * [valuePhi] may be `null`, which would mean `Unit` value is passed.
      */
     private data class ContinuationBlock(val block: LLVMBasicBlockRef, val valuePhi: LLVMValueRef?)
 
@@ -1483,9 +1483,7 @@ internal class CodeGeneratorVisitor(val context: Context) : IrElementVisitorVoid
         val returnableBlockScope = ReturnableBlockScope(value)
         using(returnableBlockScope) {
             using(VariableScope()) {
-                value.statements.forEach {
-                    generateStatement(it)
-                }
+                value.statements.forEach(this::generateStatement)
             }
         }
 
