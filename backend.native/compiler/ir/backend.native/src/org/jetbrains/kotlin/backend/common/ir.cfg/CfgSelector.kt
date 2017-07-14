@@ -6,6 +6,7 @@ import org.jetbrains.kotlin.descriptors.CallableDescriptor
 import org.jetbrains.kotlin.ir.IrElement
 import org.jetbrains.kotlin.ir.IrStatement
 import org.jetbrains.kotlin.ir.declarations.IrFunction
+import org.jetbrains.kotlin.ir.declarations.IrVariable
 import org.jetbrains.kotlin.ir.expressions.*
 import org.jetbrains.kotlin.ir.symbols.IrValueSymbol
 import org.jetbrains.kotlin.ir.symbols.IrVariableSymbol
@@ -35,31 +36,35 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
     private fun selectStatement(statement: IrStatement) {
         when (statement) {
             is IrExpression -> evaluateExpression(statement)
-            else -> {
-//                println("$statement is not supported yet")
-            }
+            is IrVariable -> generateVariable(statement)
         }
     }
 
-    private fun evaluateExpression(expression: IrExpression): Operand {
-        return when (expression) {
-            is IrCall -> evaluateCall(expression)
-            is IrContainerExpression -> evaluateContainerExpression(expression)
-            is IrConst<*> -> evaluateConst(expression)
-            is IrWhileLoop -> evaluateWhileLoop(expression)
-            is IrBreak -> evaluateBreak(expression)
-            is IrContinue -> generate.selectContinue(expression)
-            is IrReturn -> evaluateReturn(expression)
-            is IrWhen -> evaluateWhen(expression)
-    //        is IrVariableSymbol -> evaluateVariableSymbol(expression)
-    //        is IrValueSymbol -> evaluateValueSymbol(expression)
-            else -> {
-                Constant(typeString, "unsupported")
-            }
+    private fun generateVariable(statement: IrVariable) = generate.selectVariable(statement, this::evaluateExpression)
+
+    private fun evaluateExpression(expression: IrExpression): Operand = when (expression) {
+        is IrCall -> evaluateCall(expression)
+        is IrContainerExpression -> evaluateContainerExpression(expression)
+        is IrConst<*> -> evaluateConst(expression)
+        is IrWhileLoop -> evaluateWhileLoop(expression)
+        is IrBreak -> evaluateBreak(expression)
+        is IrContinue -> generate.selectContinue(expression)
+        is IrReturn -> evaluateReturn(expression)
+        is IrWhen -> evaluateWhen(expression)
+        is IrSetVariable -> evaluateSetVariable(expression)
+//        is IrVariableSymbol -> evaluateVariableSymbol(expression)
+//        is IrValueSymbol -> evaluateValueSymbol(expression)
+        else -> {
+            Constant(typeString, "unsupported")
         }
     }
 
-    private fun evaluateBreak(expression: IrBreak): Operand = generate.selectBreak(expression)
+    private fun evaluateSetVariable(expression: IrSetVariable): Operand {
+        return generate.selectSetVariable(expression, this::evaluateExpression)
+    }
+
+    private fun evaluateBreak(expression: IrBreak): Operand
+            = generate.selectBreak(expression)
 
     private fun evaluateContainerExpression(expression: IrContainerExpression): Operand {
 
@@ -99,8 +104,8 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
             = returnType == context.builtIns.unitType && !isSuspend
 
 
-    private fun evaluateWhileLoop(irWhileLoop: IrWhileLoop): Operand =
-            generate.selectWhile(irWhileLoop, this::evaluateExpression, this::selectStatement)
+    private fun evaluateWhileLoop(irWhileLoop: IrWhileLoop): Operand
+            = generate.selectWhile(irWhileLoop, this::evaluateExpression, this::selectStatement)
 
     fun evaluateConst(const: IrConst<*>): Constant = when(const.kind) {
         IrConstKind.Null -> Null

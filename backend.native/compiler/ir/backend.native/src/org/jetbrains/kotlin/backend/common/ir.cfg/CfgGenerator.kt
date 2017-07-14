@@ -1,14 +1,20 @@
 package org.jetbrains.kotlin.backend.common.ir.cfg
 
+import org.jetbrains.kotlin.backend.konan.ir.IrReturnableBlockImpl
 import org.jetbrains.kotlin.builtins.KotlinBuiltIns
+import org.jetbrains.kotlin.descriptors.ValueDescriptor
+import org.jetbrains.kotlin.descriptors.VariableDescriptor
 import org.jetbrains.kotlin.ir.IrStatement
 import org.jetbrains.kotlin.ir.declarations.IrFunction
+import org.jetbrains.kotlin.ir.declarations.IrVariable
 import org.jetbrains.kotlin.ir.expressions.*
 import org.jetbrains.kotlin.ir.util.getArguments
 import org.jetbrains.kotlin.ir.util.type
+import sun.reflect.generics.scope.Scope
 
 /**
  * Created by jetbrains on 13/07/2017.
+ * TODO: move selection back to selector.
  */
 class CfgGenerator {
     private val ir = Ir()
@@ -60,6 +66,31 @@ class CfgGenerator {
         }
     }
 
+    private inner class FunctionScope(val irFunction: IrFunction): InnerScopeImpl(), ScopeLifecycle {
+        val func = Function(irFunction.descriptor.name.asString())
+        init {
+            irFunction.valueParameters
+                    .map { Variable(KtType(it.type), it.descriptor.name.asString()) }
+                    .let(func::addValueParameters)
+            ir.newFunction(func)
+        }
+
+        override fun onEnter() {
+            currentFunction = func
+            func.newBlock().let {
+                currentBlock.addSuccessor(it)
+                currentFunction.enter = it
+            }
+        }
+
+        override fun getDeclaredVariable(descriptor: VariableDescriptor): Int = 1
+
+        override fun genDeclareVariable(descriptor: VariableDescriptor, value: Operand?): Int = 1
+    }
+
+    private inner class ReturnableBlockScope(val returnableBlockImpl: IrReturnableBlockImpl): InnerScopeImpl(), ScopeLifecycle {
+    }
+
     private inner class WhenClauseScope(val irBranch: IrBranch, val nextBlock: Block): InnerScopeImpl(), ScopeLifecycle {
         var clauseBlock = currentFunction.newBlock()
 
@@ -104,29 +135,19 @@ class CfgGenerator {
     }
 
     fun <T> useBlock(block: Block, body: Block.() -> T): T {
-        //val oldBlock = currentBlock
         currentBlock = block
         return currentBlock.body()
-//        try {
-//            return currentBlock.body()
-//        } finally {
-//            currentBlock = oldBlock
-//        }
     }
 
     fun selectFunction(irFunction: IrFunction, selectStatement: (IrStatement) -> Unit) {
-        val func = Function(irFunction.descriptor.name.asString())
-        irFunction.valueParameters
-                .map { Variable(KtType(it.type), it.descriptor.name.asString()) }
-                .let(func::addValueParameters)
-        ir.newFunction(func)
-        currentFunction = func
-        if (irFunction.body != null && irFunction.body is IrBlockBody) {
-            val newBlock = currentFunction.newBlock()
-            currentBlock.addSuccessor(newBlock)
-            currentBlock = newBlock
-            func.enter = currentBlock
-            (irFunction.body as IrBlockBody).statements.forEach(selectStatement)
+        useScope(FunctionScope(irFunction)) {
+            if (irFunction.body != null && irFunction.body is IrBlockBody) {
+                func.enter?.let {
+                    useBlock(it) {
+                        (irFunction.body as IrBlockBody).statements.forEach(selectStatement)
+                    }
+                }
+            }
         }
     }
 
@@ -196,5 +217,16 @@ class CfgGenerator {
     fun selectContinue(expression: IrContinue): Operand {
         currentContext.genContinue(expression)
         return CfgUnit
+    }
+
+    fun selectSetVariable(irSetVariable: IrSetVariable, eval: (IrExpression) -> Operand): Operand {
+        val value = eval(irSetVariable.value)
+        val variable = currentContext.getDeclaredVariable(irSetVariable.descriptor)
+        return CfgUnit
+    }
+
+    fun selectVariable(irVariable: IrVariable, eval: (IrExpression) -> Operand): Unit {
+        val result = irVariable.initializer?.let { eval(it) }
+        currentContext.genDeclareVariable(irVariable.descriptor, result)
     }
 }
