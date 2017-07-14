@@ -102,7 +102,7 @@ class ClosureAnnotator   {
 
         fun includeInParent(builder: ClosureBuilder) {
             // We don't include functions or classes in a parent function when they are declared.
-            // Instead we will include them when are is used (use = call for a function or constructor call for a class).
+            // Instead we will include them when are is used (use = selectCall for a function or constructor selectCall for a class).
             val parentBuilder = closuresStack.peek()
             if (parentBuilder != null && parentBuilder.owner !is FunctionDescriptor) {
                 parentBuilder.include(builder)

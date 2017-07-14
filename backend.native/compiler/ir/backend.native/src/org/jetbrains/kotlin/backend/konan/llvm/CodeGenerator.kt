@@ -51,7 +51,7 @@ internal class CodeGenerator(override val context: Context) : ContextUtils {
 
         if (!descriptor.isExported()) {
             LLVMSetLinkage(llvmFunction, LLVMLinkage.LLVMInternalLinkage)
-            // (Cannot do this before the function body is created).
+            // (Cannot do this before the selectFunction body is created).
         }
 
         if (descriptor is ConstructorDescriptor) {
@@ -279,7 +279,7 @@ internal class CodeGenerator(override val context: Context) : ContextUtils {
              resultLifetime: Lifetime = Lifetime.IRRELEVANT,
              lazyLandingpad: () -> LLVMBasicBlockRef? = { null }): LLVMValueRef {
         var callArgs = if (isObjectReturn(llvmFunction.type)) {
-            // If function returns an object - create slot for the returned value or give local arena.
+            // If selectFunction returns an object - create slot for the returned value or give local arena.
             // This allows appropriate rootset accounting by just looking at the stack slots,
             // along with ability to allocate in appropriate arena.
             val resultSlot = when (resultLifetime.slotType) {
@@ -304,7 +304,7 @@ internal class CodeGenerator(override val context: Context) : ContextUtils {
              lazyLandingpad: () -> LLVMBasicBlockRef?): LLVMValueRef {
 
         val rargs = args.toCValues()
-        if (LLVMIsAFunction(llvmFunction) != null /* the function declaration */ &&
+        if (LLVMIsAFunction(llvmFunction) != null /* the selectFunction declaration */ &&
                 (LLVMGetFunctionAttr(llvmFunction) and LLVMNoUnwindAttribute) != 0) {
 
             return LLVMBuildCall(builder, llvmFunction, rargs, args.size, "")!!
@@ -312,11 +312,11 @@ internal class CodeGenerator(override val context: Context) : ContextUtils {
             val landingpad = lazyLandingpad()
 
             if (landingpad == null) {
-                // When calling a function that is not marked as nounwind (can throw an exception),
+                // When calling a selectFunction that is not marked as nounwind (can throw an exception),
                 // it is required to specify a landingpad to handle exceptions properly.
-                // Runtime C++ function can be marked as non-throwing using `RUNTIME_NOTHROW`.
+                // Runtime C++ selectFunction can be marked as non-throwing using `RUNTIME_NOTHROW`.
                 val functionName = getName(llvmFunction)
-                val message = "no landingpad specified when calling function $functionName without nounwind attr"
+                val message = "no landingpad specified when calling selectFunction $functionName without nounwind attr"
                 throw IllegalArgumentException(message)
             }
 
@@ -427,7 +427,7 @@ internal class CodeGenerator(override val context: Context) : ContextUtils {
     fun gxxLandingpad(numClauses: Int, name: String = ""): LLVMValueRef {
         val personalityFunction = LLVMConstBitCast(context.llvm.gxxPersonalityFunction, int8TypePtr)
 
-        // Type of `landingpad` instruction result (depends on personality function):
+        // Type of `landingpad` instruction result (depends on personality selectFunction):
         val landingpadType = structType(int8TypePtr, int32Type)
 
         return LLVMBuildLandingPad(builder, landingpadType, personalityFunction, numClauses, name)!!

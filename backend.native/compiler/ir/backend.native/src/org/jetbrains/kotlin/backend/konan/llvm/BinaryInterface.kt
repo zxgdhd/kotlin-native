@@ -218,7 +218,7 @@ internal val ClassDescriptor.typeInfoSymbolName: String
         return "ktype:" + this.fqNameSafe.toString()
     }
 
-internal val theUnitInstanceName = "kobj:kotlin.Unit"
+internal val theUnitInstanceName = "kobj:kotlin.CfgUnit"
 
 internal val ClassDescriptor.objectInstanceFieldSymbolName: String
     get() {

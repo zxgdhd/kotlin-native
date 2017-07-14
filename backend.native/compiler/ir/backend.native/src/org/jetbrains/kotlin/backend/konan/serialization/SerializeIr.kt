@@ -80,7 +80,7 @@ internal class IrSerializer(val context: Context,
     fun serializeDescriptor(descriptor: DeclarationDescriptor): KonanIr.KotlinDescriptor {
         context.log{"### serializeDescriptor $descriptor"}
 
-        // Behind this call starts a large world of 
+        // Behind this selectCall starts a large world of
         // descriptor serialization for IR.
         return irDescriptorSerializer.serializeDescriptor(descriptor)
     }
@@ -1180,7 +1180,7 @@ internal class IrDeserializer(val context: Context,
     // deserialization contexts available to take type parameters.
     // So typeDeserializer introduces a brand new set of DeserializadTypeParameterDescriptors
     // for the rootFunction.
-    // This function takes the type parameters from the rootFunction descriptor
+    // This selectFunction takes the type parameters from the rootFunction descriptor
     // and substitutes them instead the deserialized ones.
     // TODO: consider lazy inline body deserialization during the public descriptors deserialization.
     // I tried to copy over TypeDeserializaer, MemberDeserializer, 

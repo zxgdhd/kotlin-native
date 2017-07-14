@@ -64,6 +64,11 @@ fun Block.newInstruction(opcode: Opcode, use: Operand): Instruction {
 
 //-----------------------------------------------------------------------------//
 
+fun Block.isLastInstructionTerminal(): Boolean
+        = instructions.isNotEmpty() && instructions.last().opcode.isTerminal()
+
+//-----------------------------------------------------------------------------//
+
 fun Block.newInstruction(opcode: Opcode, def: Variable, use: Operand): Instruction {
 
     val instruction = newInstruction(opcode)
@@ -74,11 +79,10 @@ fun Block.newInstruction(opcode: Opcode, def: Variable, use: Operand): Instructi
 
 //-----------------------------------------------------------------------------//
 
-fun Block.newInstruction(opcode: Opcode, def: Variable, use1: Operand, use2: Operand): Instruction {
+fun Block.newInstruction(opcode: Opcode, def: Variable, vararg uses: Operand): Instruction {
 
     val instruction = newInstruction(opcode)
-    instruction.addUse(use1)
-    instruction.addUse(use2)
+    uses.forEach(instruction::addUse)
     instruction.addDef(def)
     return instruction
 }
@@ -143,6 +147,11 @@ fun Function.addTypeParameters(parameters: List<Type>) { this.reifiedTypes.addAl
 fun Function.addValueParameters(parameters: List<Variable>) { this.parameters.addAll(parameters) }
 
 //--- Utilities ---------------------------------------------------------------//
+
+fun Opcode.isTerminal() = this == Opcode.br || this == Opcode.ret
+
+//-----------------------------------------------------------------------------//
+
 
 fun search(enter: Block): List<Block> {
 

@@ -27,6 +27,8 @@ class KtType(val kotlinType: KotlinType) : Type(SimpleType.pointer) {
     override fun toString() = kotlinType.toString()
 }
 
+object CfgUnit : Type(SimpleType.pointer)
+
 //-----------------------------------------------------------------------------//
 
 abstract class Operand(val type: Type) {
@@ -59,8 +61,8 @@ class Instruction(val opcode: Opcode) {
 
 class Block(val name: String) {
     val instructions = mutableListOf<Instruction>()
-    val predecessors = mutableListOf<Block>()
-    val successors   = mutableListOf<Block>()
+    val predecessors = mutableSetOf<Block>()
+    val successors   = mutableSetOf<Block>()
 
     override fun toString() = name
 }

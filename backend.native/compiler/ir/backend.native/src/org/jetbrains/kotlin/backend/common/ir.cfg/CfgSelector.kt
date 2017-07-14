@@ -2,40 +2,38 @@ package org.jetbrains.kotlin.backend.common.ir.cfg
 
 import org.jetbrains.kotlin.backend.common.descriptors.isSuspend
 import org.jetbrains.kotlin.backend.konan.Context
-import org.jetbrains.kotlin.builtins.KotlinBuiltIns
 import org.jetbrains.kotlin.descriptors.CallableDescriptor
 import org.jetbrains.kotlin.ir.IrElement
 import org.jetbrains.kotlin.ir.IrStatement
 import org.jetbrains.kotlin.ir.declarations.IrFunction
 import org.jetbrains.kotlin.ir.expressions.*
+import org.jetbrains.kotlin.ir.expressions.impl.IrBlockImpl
+import org.jetbrains.kotlin.ir.symbols.IrValueSymbol
+import org.jetbrains.kotlin.ir.symbols.IrVariableSymbol
 import org.jetbrains.kotlin.ir.visitors.IrElementVisitorVoid
 
 //-----------------------------------------------------------------------------//
 
 internal class CfgSelector(val context: Context): IrElementVisitorVoid {
 
-    /**
-     * Encapsulates result of expression and block which should be used next
-     */
-
-    val gen = CfgGenerator()
+    val generate = CfgGenerator()
 
     fun select() {
         context.irModule!!.accept(this, null)
-        gen.log()
+        context.log { generate.log(); "Complete" }
     }
 
     //-------------------------------------------------------------------------//
 
     override fun visitFunction(declaration: IrFunction) {
-        gen.function(declaration, this::selectStatement)
+        generate.selectFunction(declaration, this::selectStatement)
         super.visitFunction(declaration)
     }
 
 
     //-------------------------------------------------------------------------//
 
-    // TODO: maybe function arg is not needed
+    // TODO: maybe selectFunction arg is not needed
     private fun selectStatement(statement: IrStatement) {
         when (statement) {
             is IrExpression -> evaluateExpression(statement)
@@ -45,47 +43,49 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
         }
     }
 
-    private fun evaluateExpression(expression: IrExpression): Operand = when (expression) {
-        is IrCall -> evaluateCall(expression)
-        is IrConst<*> -> evaluateConst(expression)
-//        is IrWhileLoop -> evaluateWhileLoop(expression, func)
-        is IrReturn -> evaluateReturn(expression)
-        is IrWhen -> evaluateWhen(expression)
-        else -> {
-            Constant(typeString, "unsupported")
-        }
-    }
-
-    private fun evaluateWhen(expression: IrWhen): Operand {
-        val isUnit = KotlinBuiltIns.isUnit(expression.type)
-        val isNothing = KotlinBuiltIns.isNothing(expression.type)
-        val coverAllCases = isUnconditional(expression.branches.last())
-
-
-        expression.branches.dropLast(1).forEach {
-            gen.whenClause(it, this::evaluateExpression)
-        }
-        return expression.branches.last().let {
-            if (!coverAllCases) {
-                gen.whenClause(it, this::evaluateExpression)
-            } else {
-                evaluateExpression(it.result)
+    private fun evaluateExpression(expression: IrExpression): Operand {
+        return when (expression) {
+            is IrCall -> evaluateCall(expression)
+            is IrContainerExpression -> evaluateContainerExpression(expression)
+            is IrConst<*> -> evaluateConst(expression)
+            is IrWhileLoop -> evaluateWhileLoop(expression)
+            is IrReturn -> evaluateReturn(expression)
+            is IrWhen -> evaluateWhen(expression)
+    //        is IrVariableSymbol -> evaluateVariableSymbol(expression)
+    //        is IrValueSymbol -> evaluateValueSymbol(expression)
+            else -> {
+                Constant(typeString, "unsupported")
             }
         }
     }
 
-    // TODO: maybe it should be refactored to IrBranch or as extension method?
-    private fun isUnconditional(branch: IrBranch): Boolean =
-            branch.condition is IrConst<*>                            // If branch condition is constant.
-                    && (branch.condition as IrConst<*>).value as Boolean  // If condition is "true"
+    private fun evaluateContainerExpression(expression: IrContainerExpression): Operand {
+
+        expression.statements.dropLast(1).forEach(this::selectStatement)
+        expression.statements.lastOrNull()?.let {
+            if (it is IrExpression) {
+                return evaluateExpression(it)
+            } else {
+                selectStatement(it)
+            }
+        }
+        return Constant(CfgUnit, 0)
+    }
+
+    private fun evaluateVariableSymbol(irVariableSymbol: IrVariableSymbol): Operand = TODO()
+
+    private fun evaluateValueSymbol(irValueSymbol: IrValueSymbol): Operand = TODO()
+
+    private fun evaluateWhen(expression: IrWhen): Operand =
+            generate.selectWhen(expression, this::evaluateExpression)
 
     private fun evaluateReturn(irReturn: IrReturn): Operand {
 
         val target = irReturn.returnTarget
         val evaluated = evaluateExpression(irReturn.value)
 
-        gen.ret(evaluated)
-        // TODO: Introduce Unit type
+        generate.ret(evaluated)
+        // TODO: Introduce CfgUnit type
         return if (target.returnsUnit()) {
             Null
         } else {
@@ -94,12 +94,12 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
 
     }
 
-    private fun CallableDescriptor.returnsUnit() = returnType == context.builtIns.unitType && !isSuspend
+    private fun CallableDescriptor.returnsUnit()
+            = returnType == context.builtIns.unitType && !isSuspend
 
 
-    private fun evaluateWhileLoop(irWhileLoop: IrWhileLoop): Operand {
-        TODO()
-    }
+    private fun evaluateWhileLoop(irWhileLoop: IrWhileLoop): Operand =
+            generate.selectWhile(irWhileLoop, this::evaluateExpression, this::selectStatement)
 
     fun evaluateConst(const: IrConst<*>): Constant = when(const.kind) {
         IrConstKind.Null -> Null
@@ -116,13 +116,13 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
 
     //-------------------------------------------------------------------------//
 
-    private fun evaluateCall(irCall: IrCall): Operand = gen.call(irCall, this::evaluateExpression)
+    private fun evaluateCall(irCall: IrCall): Operand
+            = generate.selectCall(irCall, this::evaluateExpression)
 
     //-------------------------------------------------------------------------//
 
-    override fun visitElement(element: IrElement) {
-        element.acceptChildren(this, null)
-    }
+    override fun visitElement(element: IrElement)
+            = element.acceptChildren(this, null)
 }
 
 //-----------------------------------------------------------------------------//

@@ -31,9 +31,9 @@ fun Function.log() {
 
     val typeParametersStr  = reifiedTypes.joinToString()
     val valueParametersStr = parameters.joinToString(", ", "", "", -1, "", { it.toStr() })                 // Function parameters as string.
-    println("fun <$typeParametersStr> $name($valueParametersStr) {")                                                            // Print function declaration.
+    println("fun <$typeParametersStr> $name($valueParametersStr) {")                                                            // Print selectFunction declaration.
     if (enter != null) {
-        val blocks = search(enter!!)                                                            // Get basic blocks of function body.
+        val blocks = search(enter!!)                                                            // Get basic blocks of selectFunction body.
         blocks.reversed().forEach(Block::log)                                                   // Print the blocks.
     }
     println("}")

@@ -47,7 +47,7 @@ internal enum class SlotType {
 
 // Lifetimes class of reference, computed by escape analysis.
 enum class Lifetime(val slotType: SlotType) {
-    // If reference is frame-local (only obtained from some call and never leaves).
+    // If reference is frame-local (only obtained from some selectCall and never leaves).
     LOCAL(SlotType.ARENA),
     // If reference is only returned.
     RETURN_VALUE(SlotType.RETURN),
@@ -59,8 +59,8 @@ enum class Lifetime(val slotType: SlotType) {
     GLOBAL(SlotType.ANONYMOUS),
     // If reference used to throw.
     THROW(SlotType.ANONYMOUS),
-    // If reference used as an argument of outgoing function. Class can be improved by escape analysis
-    // of called function.
+    // If reference used as an argument of outgoing selectFunction. Class can be improved by escape analysis
+    // of called selectFunction.
     ARGUMENT(SlotType.ANONYMOUS),
     // If reference class is unknown.
     UNKNOWN(SlotType.UNKNOWN),
@@ -91,8 +91,8 @@ internal interface ContextUtils : RuntimeAware {
     fun isExternal(descriptor: DeclarationDescriptor) = descriptor.module != context.ir.irModule.descriptor
 
     /**
-     * LLVM function generated from the Kotlin function.
-     * It may be declared as external function prototype.
+     * LLVM selectFunction generated from the Kotlin selectFunction.
+     * It may be declared as external selectFunction prototype.
      */
     val FunctionDescriptor.llvmFunction: LLVMValueRef
         get() {
@@ -197,7 +197,7 @@ internal class Llvm(val context: Context, val llvmModule: LLVMModuleRef) {
 
     private fun importFunction(name: String, otherModule: LLVMModuleRef): LLVMValueRef {
         if (LLVMGetNamedFunction(llvmModule, name) != null) {
-            throw IllegalArgumentException("function $name already exists")
+            throw IllegalArgumentException("selectFunction $name already exists")
         }
 
         val externalFunction = LLVMGetNamedFunction(otherModule, name)!!

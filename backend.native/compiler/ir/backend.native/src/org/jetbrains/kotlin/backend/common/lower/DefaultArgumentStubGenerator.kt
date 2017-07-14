@@ -240,7 +240,7 @@ class DefaultParameterInjector constructor(val context: CommonBackendContext): B
                         descriptor  = symbolForCall.descriptor)
                             .apply {
                                 params.forEach {
-                                    log("call::params@${it.first.index}/${it.first.name.asString()}: ${ir2string(it.second)}")
+                                    log("selectCall::params@${it.first.index}/${it.first.name.asString()}: ${ir2string(it.second)}")
                                     putValueArgument(it.first.index, it.second)
                                 }
                                 dispatchReceiver = expression.dispatchReceiver
@@ -270,7 +270,7 @@ class DefaultParameterInjector constructor(val context: CommonBackendContext): B
                         typeArguments = expression.descriptor.typeParameters.map{it to (expression.getTypeArgument(it) ?: it.defaultType) }.toMap())
                         .apply {
                             params.forEach {
-                                log("call::params@${it.first.index}/${it.first.name.asString()}: ${ir2string(it.second)}")
+                                log("selectCall::params@${it.first.index}/${it.first.name.asString()}: ${ir2string(it.second)}")
                                 putValueArgument(it.first.index, it.second)
                             }
                             expression.extensionReceiver?.apply{
@@ -279,8 +279,8 @@ class DefaultParameterInjector constructor(val context: CommonBackendContext): B
                             expression.dispatchReceiver?.apply {
                                 dispatchReceiver = expression.dispatchReceiver
                             }
-                            log("call::extension@: ${ir2string(expression.extensionReceiver)}")
-                            log("call::dispatch@: ${ir2string(expression.dispatchReceiver)}")
+                            log("selectCall::extension@: ${ir2string(expression.extensionReceiver)}")
+                            log("selectCall::dispatch@: ${ir2string(expression.dispatchReceiver)}")
                         }
             }
 
