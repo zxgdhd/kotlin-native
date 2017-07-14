@@ -203,6 +203,7 @@ fun Block.asDot(): String {
     val builder = StringBuilder()
     builder.append(name + "\n")
     instructions.dropLast(1).forEach { builder.append(it.toStr() + "\\l")}
-    instructions.last().let { builder.append(it.toStr()) }
+    if (instructions.isNotEmpty())
+        instructions.last().let { builder.append(it.toStr()) }
     return builder.toString()
 }

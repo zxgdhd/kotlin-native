@@ -61,11 +61,17 @@ class CfgGenerator {
     }
 
     private inner class WhenClauseScope(val irBranch: IrBranch, val nextBlock: Block): InnerScopeImpl(), ScopeLifecycle {
-        val clauseBlock = currentFunction.newBlock()
+        var clauseBlock = currentFunction.newBlock()
 
         fun isUnconditional(): Boolean =
                 irBranch.condition is IrConst<*>                            // If branch condition is constant.
                         && (irBranch.condition as IrConst<*>).value as Boolean  // If condition is "true"
+
+        override fun onEnter() {
+            if (isUnconditional()) {
+                clauseBlock = currentBlock
+            }
+        }
 
         override fun onLeave() {
             currentBlock = nextBlock
@@ -174,6 +180,7 @@ class CfgGenerator {
                 useBlock(loopBody) {
                     irWhileLoop.body?.let(selectStatement)
                 }
+                // Adding break after all statements
                 useBlock(currentBlock) {
                     if (!isLastInstructionTerminal())
                         br(loopCheck)
