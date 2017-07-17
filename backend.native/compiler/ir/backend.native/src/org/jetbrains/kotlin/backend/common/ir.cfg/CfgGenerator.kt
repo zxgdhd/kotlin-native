@@ -8,6 +8,8 @@ import org.jetbrains.kotlin.ir.IrStatement
 import org.jetbrains.kotlin.ir.declarations.IrFunction
 import org.jetbrains.kotlin.ir.declarations.IrVariable
 import org.jetbrains.kotlin.ir.expressions.*
+import org.jetbrains.kotlin.ir.symbols.IrValueSymbol
+import org.jetbrains.kotlin.ir.symbols.IrVariableSymbol
 import org.jetbrains.kotlin.ir.util.getArguments
 import org.jetbrains.kotlin.ir.util.type
 import sun.reflect.generics.scope.Scope
@@ -77,7 +79,6 @@ class CfgGenerator {
 
         override fun onEnter() {
             currentFunction = func
-            currentFunction.enter = func.newBlock(name = "enter")
         }
     }
 
@@ -140,10 +141,12 @@ class CfgGenerator {
 
     fun selectFunction(irFunction: IrFunction, selectStatement: (IrStatement) -> Unit) {
         useScope(FunctionScope(irFunction)) {
-            if (irFunction.body != null && irFunction.body is IrBlockBody) {
-                func.enter?.let {
-                    useBlock(it) {
-                        (irFunction.body as IrBlockBody).statements.forEach(selectStatement)
+            irFunction.body?.let {
+                useBlock(func.enter) {
+                    when (it) {
+                        is IrExpressionBody -> selectStatement(it.expression)
+                        is IrBlockBody -> it.statements.forEach(selectStatement)
+                        else -> throw TODO("unsupported function body type: $it")
                     }
                 }
             }
@@ -165,17 +168,17 @@ class CfgGenerator {
 
     fun selectWhen(expression: IrWhen, eval: (IrExpression) -> Operand): Operand
             = useScope(WhenScope(expression)) {
-                expression.branches.forEach {
-                    val nextBlock = if (it == expression.branches.last()) exitBlock else currentFunction.newBlock()
-                    selectWhenClause(it, nextBlock, exitBlock, eval)
-                }
-                // TODO: use actual data
-                CfgUnit
-            }
+        val resultVar = Variable(KtType(expression.type), "TODO")
+        expression.branches.forEach {
+            val nextBlock = if (it == expression.branches.last()) exitBlock else currentFunction.newBlock()
+            selectWhenClause(it, nextBlock, exitBlock, resultVar, eval)
+        }
+        resultVar
+    }
 
     //-------------------------------------------------------------------------//
 
-    private fun selectWhenClause(irBranch: IrBranch, nextBlock: Block, exitBlock: Block, eval: (IrExpression) -> Operand): Operand
+    private fun selectWhenClause(irBranch: IrBranch, nextBlock: Block, exitBlock: Block, variable: Variable, eval: (IrExpression) -> Operand)
             = useScope(WhenClauseScope(irBranch, nextBlock)) {
                 if (!isUnconditional()) {
                     useBlock(currentBlock) {
@@ -185,11 +188,9 @@ class CfgGenerator {
 
                 useBlock(clauseBlock) {
                     val clauseExpr = eval(irBranch.result)
+                    mov(variable, clauseExpr)
                     if (!isLastInstructionTerminal()) {
                         br(exitBlock)
-                        CfgUnit
-                    } else {
-                        clauseExpr
                     }
                 }
             }
@@ -244,16 +245,40 @@ class CfgGenerator {
     //-------------------------------------------------------------------------//
 
     fun selectSetVariable(irSetVariable: IrSetVariable, eval: (IrExpression) -> Operand): Operand {
-        val value = eval(irSetVariable.value)
-        val variable = variableMap[irSetVariable.descriptor]
+        val operand = eval(irSetVariable.value)
+        variableMap[irSetVariable.descriptor] = operand
+        val variable = Variable(KtType(irSetVariable.value.type), irSetVariable.descriptor.name.asString())
+        useBlock(currentBlock) {
+            mov(variable, operand)
+        }
         return CfgUnit
     }
 
     //-------------------------------------------------------------------------//
 
     fun selectVariable(irVariable: IrVariable, eval: (IrExpression) -> Operand): Unit {
-        val result = irVariable.initializer?.let { eval(it) }
-        if (result != null) variableMap[irVariable.descriptor] = result
+        // TODO: add variables without initializers
+        irVariable.initializer?.let {
+            val operand = eval(it)
+            val variable = Variable(KtType(irVariable.descriptor.type), irVariable.descriptor.name.asString())
+            variableMap[irVariable.descriptor] = operand
+            useBlock(currentBlock) {
+                mov(variable, operand)
+            }
+        }
 
     }
+
+    //-------------------------------------------------------------------------//
+
+    fun selectVariableSymbol(irVariableSymbol: IrVariableSymbol): Operand
+            = variableMap[irVariableSymbol.descriptor] ?: Null
+
+    //-------------------------------------------------------------------------//
+
+    fun selectValueSymbol(irValueSymbol: IrValueSymbol): Operand
+            = variableMap[irValueSymbol.descriptor] ?: Null
+
+    //-------------------------------------------------------------------------//
+
 }

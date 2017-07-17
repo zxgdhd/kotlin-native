@@ -144,7 +144,7 @@ fun Block.condBr(condition: Operand, targetTrue: Block, targetFalse: Block) {
 
 //--- Function ----------------------------------------------------------------//
 
-fun Function.newBlock(name: String = genBlockName(), tag: String = "") = Block("$name$tag")
+fun Function.newBlock(name: String = genBlockName(), tag: String = "") = Block("${name}_$tag")
 fun Function.addTypeParameters(parameters: List<Type>) { this.reifiedTypes.addAll(parameters) }
 fun Function.addValueParameters(parameters: List<Variable>) { this.parameters.addAll(parameters) }
 
@@ -183,7 +183,7 @@ fun dot(enter: Block, name: String="graph") {
     File(name + ".dot").printWriter().use { out ->
         out.println("digraph {")
         search(enter).forEach {
-            out.println("${it.name} [label=\"${it.asDot()}\"]\n")
+            out.println("${it.name} [shape=box label=\"${it.asDot()}\"]\n")
         }
         while (workSet.isNotEmpty()) {
             val block = workSet.last()

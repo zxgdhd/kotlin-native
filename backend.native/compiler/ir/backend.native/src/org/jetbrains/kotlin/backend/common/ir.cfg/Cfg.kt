@@ -70,7 +70,7 @@ class Block(val name: String) {
 class Function(val name: String) {
     val reifiedTypes = mutableListOf<Type>()
     val parameters   = mutableListOf<Variable>()
-    var enter: Block? = null
+    var enter: Block = Block("${name}_enter")
 
     var maxBlockId    = 0
     var maxVariableId = 0

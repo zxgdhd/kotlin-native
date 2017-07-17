@@ -59,4 +59,4 @@ fun Ir.log() {
 //-----------------------------------------------------------------------------//
 
 fun Function.genVariableName() = "tmp${maxVariableId++}"
-fun Function.genBlockName() = "block${maxBlockId++}"
+fun Function.genBlockName() = "bb${maxBlockId++}"

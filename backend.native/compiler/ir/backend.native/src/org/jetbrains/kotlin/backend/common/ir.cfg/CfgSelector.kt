@@ -1,14 +1,19 @@
 package org.jetbrains.kotlin.backend.common.ir.cfg
 
+import org.jetbrains.kotlin.backend.common.descriptors.isSuspend
 import org.jetbrains.kotlin.backend.common.ir.ir2string
 import org.jetbrains.kotlin.backend.konan.Context
 import org.jetbrains.kotlin.backend.konan.ir.IrReturnableBlockImpl
 import org.jetbrains.kotlin.backend.konan.ir.IrSuspendableExpression
 import org.jetbrains.kotlin.backend.konan.ir.IrSuspensionPoint
+import org.jetbrains.kotlin.descriptors.CallableDescriptor
 import org.jetbrains.kotlin.ir.IrElement
 import org.jetbrains.kotlin.ir.IrStatement
 import org.jetbrains.kotlin.ir.declarations.IrFunction
+import org.jetbrains.kotlin.ir.declarations.IrVariable
 import org.jetbrains.kotlin.ir.expressions.*
+import org.jetbrains.kotlin.ir.symbols.IrValueSymbol
+import org.jetbrains.kotlin.ir.symbols.IrVariableSymbol
 import org.jetbrains.kotlin.ir.visitors.IrElementVisitorVoid
 import org.jetbrains.kotlin.resolve.descriptorUtil.fqNameSafe
 
@@ -56,8 +61,8 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
         is IrReturn -> evaluateReturn(expression)
         is IrWhen -> evaluateWhen(expression)
         is IrSetVariable -> evaluateSetVariable(expression)
-//        is IrVariableSymbol -> evaluateVariableSymbol(expression)
-//        is IrValueSymbol -> evaluateValueSymbol(expression)
+        is IrVariableSymbol -> evaluateVariableSymbol(expression)
+        is IrValueSymbol -> evaluateValueSymbol(expression)
         else -> {
             Constant(typeString, "unsupported")
         }
@@ -91,11 +96,13 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
 
     //-------------------------------------------------------------------------//
 
-    private fun evaluateVariableSymbol(irVariableSymbol: IrVariableSymbol): Operand = TODO()
+    private fun evaluateVariableSymbol(irVariableSymbol: IrVariableSymbol): Operand
+            = generate.selectVariableSymbol(irVariableSymbol)
 
     //-------------------------------------------------------------------------//
 
-    private fun evaluateValueSymbol(irValueSymbol: IrValueSymbol): Operand = TODO()
+    private fun evaluateValueSymbol(irValueSymbol: IrValueSymbol): Operand
+            = generate.selectValueSymbol(irValueSymbol)
 
     //-------------------------------------------------------------------------//
 
