@@ -176,38 +176,3 @@ fun search(enter: Block): List<Block> {
     return result
 }
 
-fun dot(enter: Block, name: String="graph") {
-    val visited = mutableSetOf<Block>()
-    val workSet = mutableListOf(enter)
-    val edges = mutableListOf<Pair<Block, Block>>()
-    File(name + ".dot").printWriter().use { out ->
-        out.println("digraph {")
-        search(enter).forEach {
-            out.println("${it.name} [shape=box label=\"${it.asDot()}\"]\n")
-        }
-        while (workSet.isNotEmpty()) {
-            val block = workSet.last()
-
-            visited.add(block)
-            val successors = block.successors.filterNot { edges.contains(Pair(block, it)) }
-            successors.forEach { edges.add(Pair(block, it)) }
-            workSet.addAll(successors)
-            if (successors.isNotEmpty()) continue
-
-            workSet.remove(block)
-        }
-        edges.forEach { (a, b) ->
-            out.println("\"${a.name}\" -> \"${b.name}\"")
-        }
-        out.println("}")
-    }
-}
-
-fun Block.asDot(): String {
-    val builder = StringBuilder()
-    builder.append(name + "\n")
-    instructions.dropLast(1).forEach { builder.append(it.toStr() + "\\l")}
-    if (instructions.isNotEmpty())
-        instructions.last().let { builder.append(it.toStr()) }
-    return builder.toString()
-}

@@ -168,7 +168,7 @@ class CfgGenerator {
 
     fun selectWhen(expression: IrWhen, eval: (IrExpression) -> Operand): Operand
             = useScope(WhenScope(expression)) {
-        val resultVar = Variable(KtType(expression.type), "TODO")
+        val resultVar = Variable(KtType(expression.type), currentFunction.genVariableName())
         expression.branches.forEach {
             val nextBlock = if (it == expression.branches.last()) exitBlock else currentFunction.newBlock()
             selectWhenClause(it, nextBlock, exitBlock, resultVar, eval)
@@ -257,16 +257,12 @@ class CfgGenerator {
     //-------------------------------------------------------------------------//
 
     fun selectVariable(irVariable: IrVariable, eval: (IrExpression) -> Operand): Unit {
-        // TODO: add variables without initializers
-        irVariable.initializer?.let {
-            val operand = eval(it)
-            val variable = Variable(KtType(irVariable.descriptor.type), irVariable.descriptor.name.asString())
-            variableMap[irVariable.descriptor] = operand
-            useBlock(currentBlock) {
-                mov(variable, operand)
-            }
+        val operand = irVariable.initializer?.let { eval(it) } ?: Null
+        val variable = Variable(KtType(irVariable.descriptor.type), irVariable.descriptor.name.asString())
+        variableMap[irVariable.descriptor] = operand
+        useBlock(currentBlock) {
+            mov(variable, operand)
         }
-
     }
 
     //-------------------------------------------------------------------------//
