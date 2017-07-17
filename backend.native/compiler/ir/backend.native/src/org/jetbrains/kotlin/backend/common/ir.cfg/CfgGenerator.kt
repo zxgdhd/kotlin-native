@@ -22,21 +22,19 @@ class CfgGenerator {
     private lateinit var currentFunction: Function
 
     fun log() = ir.log()
+    val variableMap = mutableMapOf<ValueDescriptor, Operand>()
 
+    //-------------------------------------------------------------------------//
 
-    private var currentContext: CfgCodeContext = TopLevelCodeContext
+    private var currentContext: CodeContext = TopLevelCodeContext
 
-    private abstract inner class InnerScope(val outerContext: CfgCodeContext) : CfgCodeContext by outerContext
+    private abstract inner class InnerScope(val outerContext: CodeContext) : CodeContext by outerContext
 
     private abstract inner class InnerScopeImpl : InnerScope(currentContext)
 
-    private interface ScopeLifecycle {
-        fun onEnter() {}
+    //-------------------------------------------------------------------------//
 
-        fun onLeave() {}
-    }
-
-    private inner class LoopScope(val loop: IrLoop): InnerScopeImpl(), ScopeLifecycle {
+    private inner class LoopScope(val loop: IrLoop): InnerScopeImpl() {
         val loopCheck = currentFunction.newBlock(tag="loop_check")
         val loopExit = currentFunction.newBlock(tag="loop_exit")
         val loopBody = currentFunction.newBlock(tag="loop_body")
@@ -66,7 +64,9 @@ class CfgGenerator {
         }
     }
 
-    private inner class FunctionScope(val irFunction: IrFunction): InnerScopeImpl(), ScopeLifecycle {
+    //-------------------------------------------------------------------------//
+
+    private inner class FunctionScope(val irFunction: IrFunction): InnerScopeImpl() {
         val func = Function(irFunction.descriptor.name.asString())
         init {
             irFunction.valueParameters
@@ -79,16 +79,11 @@ class CfgGenerator {
             currentFunction = func
             currentFunction.enter = func.newBlock(name = "enter")
         }
-
-        override fun getDeclaredVariable(descriptor: VariableDescriptor): Int = 1
-
-        override fun genDeclareVariable(descriptor: VariableDescriptor, value: Operand?): Int = 1
     }
 
-    private inner class ReturnableBlockScope(val returnableBlockImpl: IrReturnableBlockImpl): InnerScopeImpl(), ScopeLifecycle {
-    }
+    //-------------------------------------------------------------------------//
 
-    private inner class WhenClauseScope(val irBranch: IrBranch, val nextBlock: Block): InnerScopeImpl(), ScopeLifecycle {
+    private inner class WhenClauseScope(val irBranch: IrBranch, val nextBlock: Block): InnerScopeImpl() {
         var clauseBlock = currentFunction.newBlock()
 
         fun isUnconditional(): Boolean =
@@ -106,7 +101,9 @@ class CfgGenerator {
         }
     }
 
-    private inner class WhenScope(irWhen: IrWhen): InnerScopeImpl(), ScopeLifecycle {
+    //-------------------------------------------------------------------------//
+
+    private inner class WhenScope(irWhen: IrWhen): InnerScopeImpl() {
         val isUnit = KotlinBuiltIns.isUnit(irWhen.type)
         val isNothing = KotlinBuiltIns.isNothing(irWhen.type)
         // TODO: Do we really need exitBlock in case of isUnit or isNothing?
@@ -118,8 +115,9 @@ class CfgGenerator {
 
     }
 
-    private inline fun <C, R> useScope(context: C, block: C.() -> R): R
-            where C : CfgCodeContext, C : ScopeLifecycle {
+    //-------------------------------------------------------------------------//
+
+    private inline fun <C: CodeContext, R> useScope(context: C, block: C.() -> R): R {
         val prevContext = currentContext
         currentContext = context
         context.onEnter()
@@ -131,10 +129,14 @@ class CfgGenerator {
         }
     }
 
+    //-------------------------------------------------------------------------//
+
     fun <T> useBlock(block: Block, body: Block.() -> T): T {
         currentBlock = block
         return currentBlock.body()
     }
+
+    //-------------------------------------------------------------------------//
 
     fun selectFunction(irFunction: IrFunction, selectStatement: (IrStatement) -> Unit) {
         useScope(FunctionScope(irFunction)) {
@@ -148,6 +150,8 @@ class CfgGenerator {
         }
     }
 
+    //-------------------------------------------------------------------------//
+
     fun selectCall(irCall: IrCall, eval: (IrExpression) -> Operand): Operand
             = useBlock(currentBlock) {
                 val callee = Variable(typePointer, irCall.descriptor.name.asString())
@@ -156,6 +160,8 @@ class CfgGenerator {
                 instruction(Opcode.call, def, *uses.toTypedArray())
                 def
             }
+
+    //-------------------------------------------------------------------------//
 
     fun selectWhen(expression: IrWhen, eval: (IrExpression) -> Operand): Operand
             = useScope(WhenScope(expression)) {
@@ -166,6 +172,8 @@ class CfgGenerator {
                 // TODO: use actual data
                 CfgUnit
             }
+
+    //-------------------------------------------------------------------------//
 
     private fun selectWhenClause(irBranch: IrBranch, nextBlock: Block, exitBlock: Block, eval: (IrExpression) -> Operand): Operand
             = useScope(WhenClauseScope(irBranch, nextBlock)) {
@@ -186,6 +194,8 @@ class CfgGenerator {
                 }
             }
 
+    //-------------------------------------------------------------------------//
+
     fun ret(operand: Operand) = useBlock(currentBlock) {
         ret(operand)
     }
@@ -198,6 +208,9 @@ class CfgGenerator {
         if (cond) block, next
     next:
       */
+
+    //-------------------------------------------------------------------------//
+
     fun selectWhile(irWhileLoop: IrWhileLoop, eval: (IrExpression) -> Operand, selectStatement: (IrStatement) -> Unit): Operand
             = useScope(LoopScope(irWhileLoop)) {
                 useBlock(loopCheck) {
@@ -214,24 +227,33 @@ class CfgGenerator {
                 CfgUnit
             }
 
+    //-------------------------------------------------------------------------//
+
     fun selectBreak(expression: IrBreak): Operand {
         currentContext.genBreak(expression)
         return CfgUnit
     }
+
+    //-------------------------------------------------------------------------//
 
     fun selectContinue(expression: IrContinue): Operand {
         currentContext.genContinue(expression)
         return CfgUnit
     }
 
+    //-------------------------------------------------------------------------//
+
     fun selectSetVariable(irSetVariable: IrSetVariable, eval: (IrExpression) -> Operand): Operand {
         val value = eval(irSetVariable.value)
-        val variable = currentContext.getDeclaredVariable(irSetVariable.descriptor)
+        val variable = variableMap[irSetVariable.descriptor]
         return CfgUnit
     }
 
+    //-------------------------------------------------------------------------//
+
     fun selectVariable(irVariable: IrVariable, eval: (IrExpression) -> Operand): Unit {
         val result = irVariable.initializer?.let { eval(it) }
-        currentContext.genDeclareVariable(irVariable.descriptor, result)
+        if (result != null) variableMap[irVariable.descriptor] = result
+
     }
 }
