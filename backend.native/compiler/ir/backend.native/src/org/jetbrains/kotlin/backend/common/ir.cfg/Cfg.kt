@@ -1,5 +1,7 @@
 package org.jetbrains.kotlin.backend.common.ir.cfg
 
+import org.jetbrains.kotlin.types.KotlinType
+
 //-----------------------------------------------------------------------------//
 
 enum class SimpleType {
@@ -21,6 +23,10 @@ open class Type(val simpleType: SimpleType) {
     override fun toString() = simpleType.toString()
 }
 
+class KtType(val kotlinType: KotlinType) : Type(SimpleType.pointer) {
+    override fun toString() = kotlinType.toString()
+}
+
 //-----------------------------------------------------------------------------//
 
 abstract class Operand(val type: Type) {
@@ -31,13 +37,13 @@ abstract class Operand(val type: Type) {
 //-----------------------------------------------------------------------------//
 
 class Variable(type: Type, val name: String): Operand(type) {
-    override fun toString() = name
+    override fun toString() = "$name:$type"
 }
 
 //-----------------------------------------------------------------------------//
 
 class Constant(type: Type, val value: Any?): Operand(type) {
-    override fun toString() = value.toString()
+    override fun toString() = "$value:$type"
 }
 
 //-----------------------------------------------------------------------------//
@@ -53,8 +59,8 @@ class Instruction(val opcode: Opcode) {
 
 class Block(val name: String) {
     val instructions = mutableListOf<Instruction>()
-    val predecessors = mutableListOf<Block>()
-    val successors   = mutableListOf<Block>()
+    val predecessors = mutableSetOf<Block>()
+    val successors   = mutableSetOf<Block>()
 
     override fun toString() = name
 }
@@ -89,7 +95,10 @@ class Ir {
     val classes    = mutableMapOf<String, Class>()
     val globalInit = Function("globalInit")
 
-    fun newFunction(name: String) { functions[name] = Function(name) }
+    fun newFunction(function: Function) {
+        functions[function.name] = function
+    }
+
 }
 
 //-----------------------------------------------------------------------------//
