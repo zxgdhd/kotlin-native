@@ -77,10 +77,7 @@ class CfgGenerator {
 
         override fun onEnter() {
             currentFunction = func
-            func.newBlock().let {
-                currentBlock.addSuccessor(it)
-                currentFunction.enter = it
-            }
+            currentFunction.enter = func.newBlock(name = "enter")
         }
 
         override fun getDeclaredVariable(descriptor: VariableDescriptor): Int = 1
@@ -193,6 +190,14 @@ class CfgGenerator {
         ret(operand)
     }
 
+    /*
+     TODO: rewrite as
+     if (cond) br block, next
+     block:
+        ...
+        if (cond) block, next
+    next:
+      */
     fun selectWhile(irWhileLoop: IrWhileLoop, eval: (IrExpression) -> Operand, selectStatement: (IrStatement) -> Unit): Operand
             = useScope(LoopScope(irWhileLoop)) {
                 useBlock(loopCheck) {

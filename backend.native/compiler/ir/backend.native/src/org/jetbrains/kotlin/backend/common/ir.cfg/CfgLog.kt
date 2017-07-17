@@ -37,7 +37,7 @@ fun Function.log() {
 //        blocks.reversed().forEach(Block::log)                                                   // Print the blocks.
 //    }
 //    println("}")
-    enter?.let { dot(it) }
+    enter?.let { dot(it, name) }
 }
 
 //-----------------------------------------------------------------------------//

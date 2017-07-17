@@ -1,5 +1,7 @@
 package org.jetbrains.kotlin.backend.common.ir.cfg
 
+import java.io.File
+
 //-----------------------------------------------------------------------------//
 
 val typeDouble  = Type(SimpleType.double)
@@ -174,29 +176,31 @@ fun search(enter: Block): List<Block> {
     return result
 }
 
-fun dot(enter: Block) {
+fun dot(enter: Block, name: String="graph") {
     val visited = mutableSetOf<Block>()
     val workSet = mutableListOf(enter)
     val edges = mutableListOf<Pair<Block, Block>>()
-    println("digraph {")
-    search(enter).forEach {
-        println("${it.name} [label=\"${it.asDot()}\"]\n")
-    }
-    while (workSet.isNotEmpty()) {
-        val block = workSet.last()
+    File(name + ".dot").printWriter().use { out ->
+        out.println("digraph {")
+        search(enter).forEach {
+            out.println("${it.name} [label=\"${it.asDot()}\"]\n")
+        }
+        while (workSet.isNotEmpty()) {
+            val block = workSet.last()
 
-        visited.add(block)
-        val successors = block.successors.filterNot { edges.contains(Pair(block, it)) }
-        successors.forEach { edges.add(Pair(block, it)) }
-        workSet.addAll(successors)
-        if (successors.isNotEmpty()) continue
+            visited.add(block)
+            val successors = block.successors.filterNot { edges.contains(Pair(block, it)) }
+            successors.forEach { edges.add(Pair(block, it)) }
+            workSet.addAll(successors)
+            if (successors.isNotEmpty()) continue
 
-        workSet.remove(block)
+            workSet.remove(block)
+        }
+        edges.forEach { (a, b) ->
+            out.println("\"${a.name}\" -> \"${b.name}\"")
+        }
+        out.println("}")
     }
-    edges.forEach { (a, b) ->
-        println("\"${a.name}\" -> \"${b.name}\"")
-    }
-    println("}")
 }
 
 fun Block.asDot(): String {
