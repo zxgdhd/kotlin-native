@@ -31,7 +31,15 @@ fun dot(enter: Block, name: String="graph") {
     val visited = mutableSetOf<Block>()
     val workSet = mutableListOf(enter)
     val edges = mutableListOf<Pair<Block, Block>>()
-    File(name + ".dot").printWriter().use { out ->
+    val dotDir = File("dot_out")
+    if (!dotDir.exists()) {
+        try {
+            dotDir.mkdir()
+        } catch (e: SecurityException) {
+            error("Cannot create folder")
+        }
+    }
+    File("dot_out/$name.dot").printWriter().use { out ->
         out.println("digraph {")
         search(enter).forEach {
             out.println("${it.name} [shape=box fontname=\"courier\" label=<${it.asDot()}>]\n")
