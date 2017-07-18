@@ -61,8 +61,14 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
         is IrVariableSymbol -> selectVariableSymbol(statement)
         is IrValueSymbol -> selectValueSymbol(statement)
         is IrVariable -> selectVariable(statement)
-        else -> Constant(typeString, "unsupported")
+        is IrGetValue -> selectGetValue(statement)
+        else -> Constant(typeString, statement.toString())
     }
+
+    //-------------------------------------------------------------------------//
+
+    private fun selectGetValue(getValue: IrGetValue): Operand
+            = variableMap[getValue.descriptor] ?: Null
 
     //-------------------------------------------------------------------------//
 
