@@ -144,8 +144,11 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
     //-------------------------------------------------------------------------//
 
     fun selectWhen(expression: IrWhen): Operand {
-        // TODO: we don't need result variable if type is Unit
-        val resultVar = Variable(KtType(expression.type), currentFunction.genVariableName())
+        val resultVar = if (expression.type == context.builtIns.unitType) {
+            null
+        } else {
+            Variable(KtType(expression.type), currentFunction.genVariableName())
+        }
         val exitBlock = currentFunction.newBlock()
 
         expression.branches.forEach {
@@ -154,7 +157,7 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
         }
 
         currentBlock = exitBlock
-        return resultVar
+        return resultVar ?: CfgUnit
     }
 
     //-------------------------------------------------------------------------//
@@ -165,7 +168,7 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
 
     //-------------------------------------------------------------------------//
 
-    private fun selectWhenClause(irBranch: IrBranch, nextBlock: Block, exitBlock: Block, variable: Variable) {
+    private fun selectWhenClause(irBranch: IrBranch, nextBlock: Block, exitBlock: Block, variable: Variable?) {
 
         currentBlock = if (isUnconditional(irBranch)) {
             currentBlock
@@ -178,7 +181,7 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
         val clauseExpr = selectStatement(irBranch.result)
         with(currentBlock) {
             if (!isLastInstructionTerminal()) {
-                mov(variable, clauseExpr)
+                variable?.let { mov(it, clauseExpr) }
                 br(exitBlock)
             }
         }
