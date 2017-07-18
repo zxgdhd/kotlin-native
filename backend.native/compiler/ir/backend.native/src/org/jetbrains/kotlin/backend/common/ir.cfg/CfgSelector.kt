@@ -177,8 +177,8 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
 
         val clauseExpr = selectStatement(irBranch.result)
         with(currentBlock) {
-            mov(variable, clauseExpr)
             if (!isLastInstructionTerminal()) {
+                mov(variable, clauseExpr)
                 br(exitBlock)
             }
         }
@@ -196,8 +196,8 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
         loopStack.push(LoopLabels(irWhileLoop, loopCheck, loopExit))
 
         currentBlock.addSuccessor(loopCheck)
-
-        loopCheck.condBr(selectStatement(irWhileLoop.condition), loopBody, loopExit)
+        currentBlock = loopCheck
+        currentBlock.condBr(selectStatement(irWhileLoop.condition), loopBody, loopExit)
 
         currentBlock = loopBody
         irWhileLoop.body?.let { selectStatement(it) }
