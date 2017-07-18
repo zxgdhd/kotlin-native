@@ -1,12 +1,9 @@
 package org.jetbrains.kotlin.backend.common.ir.cfg
 
 import org.jetbrains.kotlin.backend.common.descriptors.isSuspend
-import org.jetbrains.kotlin.backend.common.ir.ir2string
+import org.jetbrains.kotlin.backend.common.pop
+import org.jetbrains.kotlin.backend.common.push
 import org.jetbrains.kotlin.backend.konan.Context
-import org.jetbrains.kotlin.backend.konan.ir.IrReturnableBlockImpl
-import org.jetbrains.kotlin.backend.konan.ir.IrSuspendableExpression
-import org.jetbrains.kotlin.backend.konan.ir.IrSuspensionPoint
-import org.jetbrains.kotlin.builtins.KotlinBuiltIns
 import org.jetbrains.kotlin.descriptors.CallableDescriptor
 import org.jetbrains.kotlin.descriptors.ValueDescriptor
 import org.jetbrains.kotlin.ir.IrElement
@@ -19,17 +16,27 @@ import org.jetbrains.kotlin.ir.symbols.IrVariableSymbol
 import org.jetbrains.kotlin.ir.util.getArguments
 import org.jetbrains.kotlin.ir.util.type
 import org.jetbrains.kotlin.ir.visitors.IrElementVisitorVoid
-import org.jetbrains.kotlin.resolve.descriptorUtil.fqNameSafe
 
 //-----------------------------------------------------------------------------//
 
 internal class CfgSelector(val context: Context): IrElementVisitorVoid {
 
-    val generate = CfgGenerator()
+
+    private val ir = Ir()
+    private var currentBlock: Block = Block("Entry")
+    private lateinit var currentFunction: Function
+
+    val variableMap = mutableMapOf<ValueDescriptor, Operand>()
+
+    private data class LoopLabels(val loop: IrLoop, val check: Block, val exit: Block)
+
+    private val loopStack = mutableListOf<LoopLabels>()
+
+    //-------------------------------------------------------------------------//
 
     fun select() {
         context.irModule!!.accept(this, null)
-        context.log { log(); "" }
+        context.log { ir.log(); "" }
     }
 
     //-------------------------------------------------------------------------//
@@ -39,84 +46,42 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
         super.visitFunction(declaration)
     }
 
+    //-------------------------------------------------------------------------//
+
+    private fun selectStatement(statement: IrStatement): Operand = when (statement) {
+        is IrCall -> selectCall(statement)
+        is IrContainerExpression -> selectContainerExpression(statement)
+        is IrConst<*> -> selectConst(statement)
+        is IrWhileLoop -> selectWhile(statement)
+        is IrBreak -> selectBreak(statement)
+        is IrContinue -> selectContinue(statement)
+        is IrReturn -> selectReturn(statement)
+        is IrWhen -> selectWhen(statement)
+        is IrSetVariable -> selectSetVariable(statement)
+        is IrVariableSymbol -> selectVariableSymbol(statement)
+        is IrValueSymbol -> selectValueSymbol(statement)
+        is IrVariable -> selectVariable(statement)
+        else -> Constant(typeString, "unsupported")
+    }
 
     //-------------------------------------------------------------------------//
 
-    private fun selectStatement(statement: IrStatement) {
-        when (statement) {
-            is IrExpression -> evaluateExpression(statement)
+    private fun selectContainerExpression(expression: IrContainerExpression): Operand {
+
+        expression.statements.dropLast(1).forEach {
+            selectStatement(it)
         }
+        return expression.statements.lastOrNull()
+                ?.let { selectStatement(it) } ?: CfgUnit
     }
 
     //-------------------------------------------------------------------------//
 
-    private fun evaluateExpression(expression: IrStatement): Operand = when (expression) {
-        is IrCall -> evaluateCall(expression)
-        is IrContainerExpression -> evaluateContainerExpression(expression)
-        is IrConst<*> -> evaluateConst(expression)
-        is IrWhileLoop -> evaluateWhileLoop(expression)
-        is IrBreak -> evaluateBreak(expression)
-        is IrContinue -> selectContinue(expression)
-        is IrReturn -> evaluateReturn(expression)
-        is IrWhen -> evaluateWhen(expression)
-        is IrSetVariable -> evaluateSetVariable(expression)
-        is IrVariableSymbol -> evaluateVariableSymbol(expression)
-        is IrValueSymbol -> evaluateValueSymbol(expression)
-        is IrVariable -> selectVariable(expression)
-        else -> {
-            Constant(typeString, "unsupported")
-        }
-    }
-
-    //-------------------------------------------------------------------------//
-
-    private fun evaluateSetVariable(expression: IrSetVariable): Operand {
-        return selectSetVariable(expression)
-    }
-
-    //-------------------------------------------------------------------------//
-
-    private fun evaluateBreak(expression: IrBreak): Operand
-            = selectBreak(expression)
-
-    //-------------------------------------------------------------------------//
-
-    private fun evaluateContainerExpression(expression: IrContainerExpression): Operand {
-
-        expression.statements.dropLast(1).forEach(this::selectStatement)
-        expression.statements.lastOrNull()?.let {
-            if (it is IrExpression) {
-                return evaluateExpression(it)
-            } else {
-                selectStatement(it)
-            }
-        }
-        return CfgUnit
-    }
-
-    //-------------------------------------------------------------------------//
-
-    private fun evaluateVariableSymbol(irVariableSymbol: IrVariableSymbol): Operand
-            = selectVariableSymbol(irVariableSymbol)
-
-    //-------------------------------------------------------------------------//
-
-    private fun evaluateValueSymbol(irValueSymbol: IrValueSymbol): Operand
-            = selectValueSymbol(irValueSymbol)
-
-    //-------------------------------------------------------------------------//
-
-    private fun evaluateWhen(expression: IrWhen): Operand =
-            selectWhen(expression)
-
-    //-------------------------------------------------------------------------//
-
-    private fun evaluateReturn(irReturn: IrReturn): Operand {
+    private fun selectReturn(irReturn: IrReturn): Operand {
 
         val target = irReturn.returnTarget
-        val evaluated = evaluateExpression(irReturn.value)
-
-        ret(evaluated)
+        val evaluated = selectStatement(irReturn.value)
+        currentBlock.ret(evaluated)
         return if (target.returnsUnit()) {
             CfgUnit
         } else {
@@ -130,15 +95,9 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
     private fun CallableDescriptor.returnsUnit()
             = returnType == context.builtIns.unitType && !isSuspend
 
-
     //-------------------------------------------------------------------------//
 
-    private fun evaluateWhileLoop(irWhileLoop: IrWhileLoop): Operand
-            = selectWhile(irWhileLoop)
-
-    //-------------------------------------------------------------------------//
-
-    fun evaluateConst(const: IrConst<*>): Constant = when(const.kind) {
+    private fun selectConst(const: IrConst<*>): Constant = when(const.kind) {
         IrConstKind.Null -> Null
         IrConstKind.Boolean -> Constant(typeBoolean, const.value as Boolean)
         IrConstKind.Char -> Constant(typeChar, const.value as Char)
@@ -153,138 +112,136 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
 
     //-------------------------------------------------------------------------//
 
-    private fun evaluateCall(irCall: IrCall): Operand
-            = selectCall(irCall)
-
-    //-------------------------------------------------------------------------//
-
     fun selectFunction(irFunction: IrFunction) {
-        useScope(FunctionScope(irFunction)) {
-            irFunction.body?.let {
-                useBlock(func.enter) {
-                    when (it) {
-                        is IrExpressionBody -> evaluateExpression(it.expression)
-                        is IrBlockBody -> it.statements.forEach {
-                            evaluateExpression(it)
-                        }
-                        else -> throw TODO("unsupported function body type: $it")
-                    }
+        currentFunction = Function(irFunction.descriptor.name.asString())
+        ir.newFunction(currentFunction)
+
+        irFunction.valueParameters
+                .map { Variable(KtType(it.type), it.descriptor.name.asString()) }
+                .let(currentFunction::addValueParameters)
+        irFunction.body?.let {
+            currentBlock = currentFunction.enter
+            when (it) {
+                is IrExpressionBody -> selectStatement(it.expression)
+                is IrBlockBody -> it.statements.forEach {
+                    selectStatement(it)
                 }
+                else -> throw TODO("unsupported function body type: $it")
             }
         }
     }
 
     //-------------------------------------------------------------------------//
 
-    fun selectCall(irCall: IrCall): Operand
-        = useBlock(currentBlock) {
+    fun selectCall(irCall: IrCall): Operand {
         val callee = Variable(typePointer, irCall.descriptor.name.asString())
-        val uses = listOf(callee) + irCall.getArguments().map { (_, expr) -> evaluateExpression(expr) }
+        val uses = listOf(callee) + irCall.getArguments().map { (_, expr) -> selectStatement(expr) }
         val def = Variable(KtType(irCall.type), currentFunction.genVariableName())
-        instruction(Opcode.call, def, *uses.toTypedArray())
-        def
+        currentBlock.instruction(Opcode.call, def, *uses.toTypedArray())
+        return def
     }
 
     //-------------------------------------------------------------------------//
 
-    fun selectWhen(expression: IrWhen): Operand
-        = useScope(WhenScope(expression)) {
+    fun selectWhen(expression: IrWhen): Operand {
+        // TODO: we don't need result variable if type is Unit
         val resultVar = Variable(KtType(expression.type), currentFunction.genVariableName())
+        val exitBlock = currentFunction.newBlock()
+
         expression.branches.forEach {
             val nextBlock = if (it == expression.branches.last()) exitBlock else currentFunction.newBlock()
             selectWhenClause(it, nextBlock, exitBlock, resultVar)
         }
-        resultVar
+
+        currentBlock = exitBlock
+        return resultVar
     }
 
     //-------------------------------------------------------------------------//
 
-    private fun selectWhenClause(irBranch: IrBranch, nextBlock: Block, exitBlock: Block, variable: Variable)
-        = useScope(WhenClauseScope(irBranch, nextBlock)) {
-        if (!isUnconditional()) {
-            useBlock(currentBlock) {
-                condBr(evaluateExpression(irBranch.condition), clauseBlock, nextBlock)
+    fun isUnconditional(irBranch: IrBranch): Boolean =
+            irBranch.condition is IrConst<*>                            // If branch condition is constant.
+                    && (irBranch.condition as IrConst<*>).value as Boolean  // If condition is "true"
+
+    //-------------------------------------------------------------------------//
+
+    private fun selectWhenClause(irBranch: IrBranch, nextBlock: Block, exitBlock: Block, variable: Variable) {
+
+        currentBlock = if (isUnconditional(irBranch)) {
+            currentBlock
+        } else {
+            currentFunction.newBlock().also {
+                currentBlock.condBr(selectStatement(irBranch.condition), it, nextBlock)
             }
         }
 
-        useBlock(clauseBlock) {
-            val clauseExpr = evaluateExpression(irBranch.result)
+        val clauseExpr = selectStatement(irBranch.result)
+        with(currentBlock) {
             mov(variable, clauseExpr)
             if (!isLastInstructionTerminal()) {
                 br(exitBlock)
             }
         }
+        currentBlock = nextBlock
     }
 
     //-------------------------------------------------------------------------//
 
-    fun ret(operand: Operand) = useBlock(currentBlock) {
-        ret(operand)
-    }
+    fun selectWhile(irWhileLoop: IrWhileLoop): Operand {
 
-    /*
-     TODO: rewrite as
-     if (cond) br block, next
-     block:
-        ...
-        if (cond) block, next
-    next:
-      */
+        val loopCheck = currentFunction.newBlock(tag="loop_check")
+        val loopBody = currentFunction.newBlock(tag="loop_body")
+        val loopExit = currentFunction.newBlock(tag="loop_exit")
 
-    //-------------------------------------------------------------------------//
+        loopStack.push(LoopLabels(irWhileLoop, loopCheck, loopExit))
 
-    fun selectWhile(irWhileLoop: IrWhileLoop): Operand
-        = useScope(LoopScope(irWhileLoop)) {
-        useBlock(loopCheck) {
-            condBr(evaluateExpression(irWhileLoop.condition), loopBody, loopExit)
-        }
-        useBlock(loopBody) {
-            irWhileLoop.body?.let { evaluateExpression(it) }
+        currentBlock.addSuccessor(loopCheck)
 
-        }
-        // Adding break after all statements
-        useBlock(currentBlock) {
-            if (!isLastInstructionTerminal())
-                br(loopCheck)
-        }
-        CfgUnit
+        loopCheck.condBr(selectStatement(irWhileLoop.condition), loopBody, loopExit)
+
+        currentBlock = loopBody
+        irWhileLoop.body?.let { selectStatement(it) }
+        if (!currentBlock.isLastInstructionTerminal())
+            currentBlock.br(loopCheck)
+
+        loopStack.pop()
+        currentBlock = loopExit
+        return CfgUnit
     }
 
     //-------------------------------------------------------------------------//
 
     fun selectBreak(expression: IrBreak): Operand {
-        currentContext.genBreak(expression)
+        loopStack.reversed().first { (loop, _, _) -> loop == expression.loop }
+                .let { (_, _, exit) -> currentBlock.br(exit) }
         return CfgUnit
     }
 
     //-------------------------------------------------------------------------//
 
     fun selectContinue(expression: IrContinue): Operand {
-        currentContext.genContinue(expression)
+        loopStack.reversed().first { (loop, _, _) -> loop == expression.loop }
+                .let { (_, check, _) -> currentBlock.br(check) }
         return CfgUnit
     }
 
     //-------------------------------------------------------------------------//
 
     fun selectSetVariable(irSetVariable: IrSetVariable): Operand {
-        val operand = evaluateExpression(irSetVariable.value)
+        val operand = selectStatement(irSetVariable.value)
         variableMap[irSetVariable.descriptor] = operand
         val variable = Variable(KtType(irSetVariable.value.type), irSetVariable.descriptor.name.asString())
-        useBlock(currentBlock) {
-            mov(variable, operand)
-        }
+        currentBlock.mov(variable, operand)
         return CfgUnit
     }
 
     //-------------------------------------------------------------------------//
 
     fun selectVariable(irVariable: IrVariable): Operand {
-        val operand = irVariable.initializer?.let { evaluateExpression(it) } ?: Null
+        val operand = irVariable.initializer?.let { selectStatement(it) } ?: Null
         val variable = Variable(KtType(irVariable.descriptor.type), irVariable.descriptor.name.asString())
         variableMap[irVariable.descriptor] = operand
-        useBlock(currentBlock) {
-            mov(variable, operand)
-        }
+        currentBlock.mov(variable, operand)
         return variable
     }
 
@@ -297,125 +254,6 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
 
     fun selectValueSymbol(irValueSymbol: IrValueSymbol): Operand
         = variableMap[irValueSymbol.descriptor] ?: Null
-
-
-    private val ir = Ir()
-    private var currentBlock: Block = Block("Entry")
-    private lateinit var currentFunction: Function
-
-    fun log() = ir.log()
-    val variableMap = mutableMapOf<ValueDescriptor, Operand>()
-
-    //-------------------------------------------------------------------------//
-
-    private var currentContext: CodeContext = TopLevelCodeContext
-
-    private abstract inner class InnerScope(val outerContext: CodeContext) : CodeContext by outerContext
-
-    private abstract inner class InnerScopeImpl : InnerScope(currentContext)
-
-    //-------------------------------------------------------------------------//
-
-    private inner class LoopScope(val loop: IrLoop): InnerScopeImpl() {
-        val loopCheck = currentFunction.newBlock(tag="loop_check")
-        val loopExit = currentFunction.newBlock(tag="loop_exit")
-        val loopBody = currentFunction.newBlock(tag="loop_body")
-
-        override fun onEnter() {
-            currentBlock.addSuccessor(loopCheck)
-        }
-
-        override fun onLeave() {
-            currentBlock = loopExit
-        }
-
-        override fun genBreak(destination: IrBreak) {
-            if (destination.loop == loop) {
-                currentBlock.br(loopExit)
-            } else {
-                super.genBreak(destination) // breaking outer loop
-            }
-        }
-
-        override fun genContinue(destination: IrContinue) {
-            if (destination.loop == loop) {
-                currentBlock.br(loopCheck)
-            } else {
-                super.genContinue(destination)
-            }
-        }
-    }
-
-    //-------------------------------------------------------------------------//
-
-    private inner class FunctionScope(irFunction: IrFunction): InnerScopeImpl() {
-        val func = Function(irFunction.descriptor.name.asString())
-        init {
-            irFunction.valueParameters
-                .map { Variable(KtType(it.type), it.descriptor.name.asString()) }
-                .let(func::addValueParameters)
-            ir.newFunction(func)
-        }
-
-        override fun onEnter() {
-            currentFunction = func
-        }
-    }
-
-    //-------------------------------------------------------------------------//
-
-    private inner class WhenClauseScope(val irBranch: IrBranch, val nextBlock: Block): InnerScopeImpl() {
-        var clauseBlock = currentFunction.newBlock()
-
-        fun isUnconditional(): Boolean =
-            irBranch.condition is IrConst<*>                            // If branch condition is constant.
-                && (irBranch.condition as IrConst<*>).value as Boolean  // If condition is "true"
-
-        override fun onEnter() {
-            if (isUnconditional()) {
-                clauseBlock = currentBlock
-            }
-        }
-
-        override fun onLeave() {
-            currentBlock = nextBlock
-        }
-    }
-
-    //-------------------------------------------------------------------------//
-
-    private inner class WhenScope(irWhen: IrWhen): InnerScopeImpl() {
-        val isUnit = KotlinBuiltIns.isUnit(irWhen.type)
-        val isNothing = KotlinBuiltIns.isNothing(irWhen.type)
-        // TODO: Do we really need exitBlock in case of isUnit or isNothing?
-        val exitBlock = currentFunction.newBlock()
-
-        override fun onLeave() {
-            currentBlock = exitBlock
-        }
-
-    }
-
-    //-------------------------------------------------------------------------//
-
-    private inline fun <C: CodeContext, R> useScope(context: C, block: C.() -> R): R {
-        val prevContext = currentContext
-        currentContext = context
-        context.onEnter()
-        try {
-            return context.block()
-        } finally {
-            context.onLeave()
-            currentContext = prevContext
-        }
-    }
-
-    //-------------------------------------------------------------------------//
-
-    fun <T> useBlock(block: Block, body: Block.() -> T): T {
-        currentBlock = block
-        return currentBlock.body()
-    }
 
     //-------------------------------------------------------------------------//
 
