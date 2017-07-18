@@ -27,56 +27,6 @@ fun Block.log() {
     instructions.forEach { println("        $it") }
 }
 
-fun dot(enter: Block, name: String="graph") {
-    val visited = mutableSetOf<Block>()
-    val workSet = mutableListOf(enter)
-    val edges = mutableListOf<Pair<Block, Block>>()
-    val dotDir = File("dot_out")
-    if (!dotDir.exists()) {
-        try {
-            dotDir.mkdir()
-        } catch (e: SecurityException) {
-            error("Cannot create folder")
-        }
-    }
-    File("dot_out/$name.dot").printWriter().use { out ->
-        out.println("digraph {")
-        search(enter).forEach {
-            out.println("${it.name} [shape=box fontname=\"courier\" label=<${it.asDot()}>]\n")
-        }
-        while (workSet.isNotEmpty()) {
-            val block = workSet.last()
-
-            visited.add(block)
-            val successors = block.successors.filterNot { edges.contains(Pair(block, it)) }
-            successors.forEach { edges.add(Pair(block, it)) }
-            workSet.addAll(successors)
-            if (successors.isNotEmpty()) continue
-
-            workSet.remove(block)
-        }
-        edges.forEach { (a, b) ->
-            out.println("\"${a.name}\" -> \"${b.name}\"")
-        }
-        out.println("}")
-    }
-}
-
-private fun Instruction.asDot() = toStr()
-        .replace("<", "")
-        .replace(">", "")
-
-
-fun Block.asDot(): String = with(StringBuilder()) {
-    val brLeft = "<br align=\"left\"/>"
-    append("<b>$name</b>$brLeft")
-    instructions.dropLast(1).forEach { append( it.asDot() + brLeft)}
-    if (instructions.isNotEmpty())
-        instructions.last().let { append(it.asDot() + brLeft) }
-    toString()
-}
-
-
 //-----------------------------------------------------------------------------//
 
     fun Function.log() {
@@ -89,7 +39,7 @@ fun Block.asDot(): String = with(StringBuilder()) {
 //        blocks.reversed().forEach(Block::log)                                                   // Print the blocks.
 //    }
 //    println("}")
-        enter.let { dot(it, name) }
+        enter.let { dotFunction(it, name) }
     }
 
 //-----------------------------------------------------------------------------//
