@@ -15,7 +15,6 @@ fun dotFunction(enter: Block, name: String="graph") {
         out.println("edge [penwidth=0.5, fontname=Menlo, fontsize=10];")
         out.println("rankdir=TB;")
 
-
         blocks.forEach { block ->
             out.println("${block.name} [label=\"{${block.asDot()}}\"]\n")
             val successors = block.successors
@@ -41,9 +40,11 @@ fun createDotDir() {
 
 //-----------------------------------------------------------------------------//
 
-private fun Instruction.asDot() = toStr()
+private fun Instruction.asDot() = asString()
     .replace("<", "")
     .replace(">", "")
+    .replace("\"", "\\\"")
+    .replace("\'", "\\\'")
 
 
 //-----------------------------------------------------------------------------//

@@ -23,6 +23,8 @@ open class Type(val simpleType: SimpleType) {
     override fun toString() = simpleType.toString()
 }
 
+//-----------------------------------------------------------------------------//
+
 class KtType(val kotlinType: KotlinType) : Type(SimpleType.pointer) {
     override fun toString() = kotlinType.toString()
 }
@@ -37,13 +39,13 @@ abstract class Operand(val type: Type) {
 //-----------------------------------------------------------------------------//
 
 class Variable(type: Type, val name: String): Operand(type) {
-    override fun toString() = "$name:$type"
+    override fun toString() = asString()
 }
 
 //-----------------------------------------------------------------------------//
 
 class Constant(type: Type, val value: Any?): Operand(type) {
-    override fun toString() = "$value:$type"
+    override fun toString() = asString()
 }
 
 //-----------------------------------------------------------------------------//
@@ -52,7 +54,7 @@ class Instruction(val opcode: Opcode) {
     val uses = mutableListOf<Operand>()
     val defs = mutableListOf<Variable>()
 
-    override fun toString() = toStr()
+    override fun toString() = asString()
 }
 
 //-----------------------------------------------------------------------------//
