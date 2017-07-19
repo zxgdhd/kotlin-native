@@ -25,7 +25,8 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
 
     private val ir = Ir()
     private var currentBlock: Block = Block("Entry")
-    private lateinit var currentFunction: Function
+    private var currentFunction = Function("Outer")
+    private var currentLandingBlock = currentFunction.defaultLanding
 
     val variableMap = mutableMapOf<ValueDescriptor, Operand>()
 
@@ -63,7 +64,77 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
         is IrValueSymbol -> selectValueSymbol(statement)
         is IrVariable -> selectVariable(statement)
         is IrGetValue -> selectGetValue(statement)
+        is IrVararg -> selectVararg(statement)
+        is IrThrow -> selectThrow(statement)
+        is IrTry -> selectTry(statement)
         else -> Constant(typeString, statement.toString())
+    }
+
+
+    // TODO: add return value
+    private fun selectTry(irTry: IrTry): Operand {
+        // TODO: what if catches is empty
+        val tryExit = currentFunction.newBlock("try_exit")
+        currentLandingBlock = selectCatches(irTry.catches, tryExit)
+        val operand = selectStatement(irTry.tryResult)
+        currentBlock.br(tryExit)
+        currentLandingBlock = currentFunction.defaultLanding
+        currentBlock = tryExit
+        return operand
+    }
+
+    // Returns first catch block
+    private fun selectCatches(irCatches: List<IrCatch>, tryExit: Block): Block {
+        val prevBlock = currentBlock
+
+        val header = currentFunction.newBlock("catch_header")
+        val exception = Variable(Type(SimpleType.pointer), "exception")
+        val isInstanceFunc = Variable(Type(SimpleType.pointer), "IsInstance")
+
+        // TODO: should expand to real exception object extraction
+        header.instruction(Opcode.landingpad, exception)
+        currentBlock = header
+        irCatches.forEach {
+            val catchBody = currentFunction.newBlock()
+            val nextCatch = if (it == irCatches.last()) {
+                currentFunction.defaultLanding
+            } else {
+                currentFunction.newBlock("check_for_${it.parameter.name.asString()}")
+            }
+
+            val isInstance = Variable(Type(SimpleType.boolean), "is_instance")
+            currentBlock.instruction(Opcode.call, isInstance, isInstanceFunc, exception)
+            currentBlock.condBr(isInstance, catchBody, nextCatch)
+
+            currentBlock = catchBody
+            selectStatement(it.result)
+            currentBlock.br(tryExit)
+            currentBlock = nextCatch
+        }
+        currentBlock = prevBlock
+        return header
+    }
+
+    //-------------------------------------------------------------------------//
+
+    private fun selectThrow(irThrow: IrThrow): Operand {
+        val evaluated = selectStatement(irThrow.value)
+        // TODO: call ThrowException
+//        currentBlock.invoke(currentFunction.newBlock(), )
+        return Null // TODO: replace with Nothing type
+    }
+
+    //-------------------------------------------------------------------------//
+
+    private fun selectVararg(irVararg: IrVararg): Operand {
+        val elements = irVararg.elements.map {
+            if (it is IrExpression) {
+                return@map selectStatement(it)
+            }
+            throw IllegalStateException("IrVararg neither was lowered nor can be statically evaluated")
+        }
+        // TODO: replace with a correct array type
+        return Constant(KtType(irVararg.type), elements)
     }
 
     //-------------------------------------------------------------------------//
@@ -128,6 +199,7 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
                 .let(currentFunction::addValueParameters)
         irFunction.body?.let {
             currentBlock = currentFunction.enter
+            currentLandingBlock = currentFunction.defaultLanding
             when (it) {
                 is IrExpressionBody -> selectStatement(it.expression)
                 is IrBlockBody -> it.statements.forEach {
@@ -140,18 +212,28 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
 
     //-------------------------------------------------------------------------//
 
+    /**
+     * pass [catchBlock] if call is inside try-catch
+     * function's default landing will be used otherwise
+     */
     fun selectCall(irCall: IrCall): Operand {
         val callee = Variable(typePointer, irCall.descriptor.name.asString())
         val uses = listOf(callee) + irCall.getArguments().map { (_, expr) -> selectStatement(expr) }
+        val def = Variable(KtType(irCall.type), currentFunction.genVariableName())
+        val successTarget = currentFunction.newBlock("success")
+        currentBlock.invoke(successTarget, currentLandingBlock, def, *uses.toTypedArray())
+        currentBlock = successTarget
+        return def
 
-        if (irCall.type.isUnit()) {
-            currentBlock.instruction(Opcode.call, *uses.toTypedArray())
-            return CfgUnit
-        } else {
-            val def = Variable(KtType(irCall.type), currentFunction.genVariableName())
-            currentBlock.instruction(Opcode.call, def, *uses.toTypedArray())
-            return def
-        }
+
+//        if (irCall.type.isUnit()) {
+//            currentBlock.instruction(Opcode.call, *uses.toTypedArray())
+//            return CfgUnit
+//        } else {
+//            val def = Variable(KtType(irCall.type), currentFunction.genVariableName())
+//            currentBlock.instruction(Opcode.call, def, *uses.toTypedArray())
+//            return def
+//        }
     }
 
     //-------------------------------------------------------------------------//

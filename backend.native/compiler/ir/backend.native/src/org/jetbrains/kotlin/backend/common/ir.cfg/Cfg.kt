@@ -72,8 +72,8 @@ class Block(val name: String) {
 class Function(val name: String) {
     val reifiedTypes = mutableListOf<Type>()
     val parameters   = mutableListOf<Variable>()
-    var enter: Block = Block("${name}_enter")
-
+    var enter = Block("${name}_enter")
+    val defaultLanding = Block("${name}_landingpad")
     var maxBlockId    = 0
     var maxVariableId = 0
 
@@ -112,7 +112,10 @@ enum class Opcode {
     br,
     condbr,
     mov,
-    call
+    call,
+    invoke,
+    resume,
+    landingpad
 }
 
 //-----------------------------------------------------------------------------//
