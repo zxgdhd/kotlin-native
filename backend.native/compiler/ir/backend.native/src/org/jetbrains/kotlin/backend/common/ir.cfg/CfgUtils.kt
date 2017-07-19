@@ -1,7 +1,5 @@
 package org.jetbrains.kotlin.backend.common.ir.cfg
 
-import java.io.File
-
 //-----------------------------------------------------------------------------//
 
 val typeDouble  = Type(SimpleType.double)
@@ -151,6 +149,20 @@ fun Block.condBr(condition: Operand, targetTrue: Block, targetFalse: Block) {
 fun Block.isLastInstructionTerminal(): Boolean
     = instructions.isNotEmpty() && instructions.last().opcode.isTerminal()
 
+//-----------------------------------------------------------------------------//
+
+fun Block.invoke(targetSuccess: Block, targetFail: Block, def: Variable, vararg uses: Operand) {
+    with(instruction(Opcode.invoke)) {
+        addUse(uses[0]) // function name
+        addUse(Constant(typePointer, targetSuccess))
+        addUse(Constant(typePointer, targetFail))
+        uses.drop(1).forEach(this::addUse)
+        addDef(def)
+    }
+    addSuccessor(targetFail)
+    addSuccessor(targetSuccess)
+}
+
 //--- Function ----------------------------------------------------------------//
 
 fun Function.newBlock(name: String = "block") = Block(genBlockName(name))
@@ -159,7 +171,8 @@ fun Function.addValueParameters(parameters: List<Variable>) { this.parameters.ad
 
 //--- Utilities ---------------------------------------------------------------//
 
-fun Opcode.isTerminal() = this == Opcode.br || this == Opcode.ret
+// TODO: add argument to the opcode?
+fun Opcode.isTerminal() = this == Opcode.br || this == Opcode.ret || this == Opcode.invoke || this == Opcode.resume
 
 //-----------------------------------------------------------------------------//
 
