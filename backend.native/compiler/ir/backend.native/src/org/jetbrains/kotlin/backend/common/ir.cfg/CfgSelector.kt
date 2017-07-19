@@ -16,6 +16,7 @@ import org.jetbrains.kotlin.ir.symbols.IrVariableSymbol
 import org.jetbrains.kotlin.ir.util.getArguments
 import org.jetbrains.kotlin.ir.util.type
 import org.jetbrains.kotlin.ir.visitors.IrElementVisitorVoid
+import org.jetbrains.kotlin.types.typeUtil.isUnit
 
 //-----------------------------------------------------------------------------//
 
@@ -142,8 +143,12 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
     fun selectCall(irCall: IrCall): Operand {
         val callee = Variable(typePointer, irCall.descriptor.name.asString())
         val uses = listOf(callee) + irCall.getArguments().map { (_, expr) -> selectStatement(expr) }
-        val def = Variable(KtType(irCall.type), currentFunction.genVariableName())
-        currentBlock.instruction(Opcode.call, def, *uses.toTypedArray())
+        val def = Variable(KtType(irCall.type), currentFunction.genVariableName())          // TODO we do don need def for Unit function
+        if (irCall.type.isUnit()) {
+            currentBlock.instruction(Opcode.call, *uses.toTypedArray())
+        } else {
+            currentBlock.instruction(Opcode.call, def, *uses.toTypedArray())
+        }
         return def
     }
 
@@ -198,9 +203,9 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
 
     fun selectWhile(irWhileLoop: IrWhileLoop): Operand {
 
-        val loopCheck = currentFunction.newBlock(tag="loop_check")
-        val loopBody = currentFunction.newBlock(tag="loop_body")
-        val loopExit = currentFunction.newBlock(tag="loop_exit")
+        val loopCheck = currentFunction.newBlock("loop_check")
+        val loopBody = currentFunction.newBlock("loop_body")
+        val loopExit = currentFunction.newBlock("loop_exit")
 
         loopStack.push(LoopLabels(irWhileLoop, loopCheck, loopExit))
 

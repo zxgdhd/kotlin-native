@@ -57,17 +57,21 @@ fun Block.instruction(opcode: Opcode): Instruction {
 
 //-----------------------------------------------------------------------------//
 
+fun Block.instruction(opcode: Opcode, vararg uses: Operand): Instruction {
+
+    val instruction = instruction(opcode)
+    uses.forEach(instruction::addUse)
+    return instruction
+}
+
+//-----------------------------------------------------------------------------//
+
 fun Block.instruction(opcode: Opcode, use: Operand): Instruction {
 
     val instruction = instruction(opcode)
     instruction.addUse(use)
     return instruction
 }
-
-//-----------------------------------------------------------------------------//
-
-fun Block.isLastInstructionTerminal(): Boolean
-        = instructions.isNotEmpty() && instructions.last().opcode.isTerminal()
 
 //-----------------------------------------------------------------------------//
 
@@ -142,9 +146,14 @@ fun Block.condBr(condition: Operand, targetTrue: Block, targetFalse: Block) {
     addSuccessor(targetFalse)
 }
 
+//-----------------------------------------------------------------------------//
+
+fun Block.isLastInstructionTerminal(): Boolean
+    = instructions.isNotEmpty() && instructions.last().opcode.isTerminal()
+
 //--- Function ----------------------------------------------------------------//
 
-fun Function.newBlock(name: String = genBlockName(), tag: String = "") = Block("${name}_$tag")
+fun Function.newBlock(name: String = "block") = Block(genBlockName(name))
 fun Function.addTypeParameters(parameters: List<Type>) { this.reifiedTypes.addAll(parameters) }
 fun Function.addValueParameters(parameters: List<Variable>) { this.parameters.addAll(parameters) }
 
