@@ -5,15 +5,16 @@ package org.jetbrains.kotlin.backend.common.ir.cfg
 fun Instruction.asString(): String {
 
     if (opcode == Opcode.call) return callAsString()
-    var buffer = ""
+    val buff = StringBuilder()
     if (defs.isNotEmpty()) {
-        buffer += defs.joinToString()
-        buffer = buffer.padEnd(8, ' ') + " = "
+        buff.append(defs.joinToString())
+        buff.padEnd(8, ' ')
+        buff.append(" = ")
     }
 
-    buffer += "$opcode "
-    buffer += uses.joinToString()
-    return buffer
+    buff.append("$opcode ")
+    buff.append(uses.joinToString())
+    return buff.toString()
 }
 
 //-----------------------------------------------------------------------------//
@@ -22,10 +23,16 @@ fun Instruction.asString(): String {
 //to label %call_success unwind label %cleanup_landingpad
 
 fun Instruction.callAsString(): String {
-    val retValue = defs[0].toString()
+    val buff = StringBuilder()
+    if (defs.size > 0) {
+        buff.append(defs[0].toString() + " = ")                                      // return value
+    }
+
     val callee = (uses[0] as Variable).name
-    val arguments = uses.drop(1).joinToString(separator = ", ", prefix = "(", postfix = ")")
-    return "$retValue = $opcode $callee$arguments"
+    val arguments = uses.drop(1).joinToString()
+    buff.append("$opcode $callee($arguments)")
+
+    return buff.toString()
 }
 
 //-----------------------------------------------------------------------------//
@@ -82,5 +89,5 @@ fun Ir.log() {
 //-----------------------------------------------------------------------------//
 
 fun Function.genVariableName() = "${maxVariableId++}"
-fun Function.genBlockName() = "bb${maxBlockId++}"
+fun Function.genBlockName(blockName: String) = "$blockName${maxBlockId++}"
 
