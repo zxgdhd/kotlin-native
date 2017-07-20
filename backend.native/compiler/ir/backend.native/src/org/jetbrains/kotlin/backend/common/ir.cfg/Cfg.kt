@@ -106,16 +106,70 @@ class Ir {
 //-----------------------------------------------------------------------------//
 
 enum class Opcode {
-    add,
-    cmp,
-    ret,
+    ret,                    // Terminators
     br,
     condbr,
-    mov,
-    call,
+    switch,
+    indirectbr,
     invoke,
     resume,
-    landingpad
+    catchswitch,
+    catchret,
+    cleanupret,
+    unreachable,
+
+    add,                    // Integer binary operations
+    sub,
+    mul,
+    udiv,
+    sdiv,
+    urem,
+    srem,
+
+    shl,                    // Bitwise binary operations
+    lshr,
+    ashr,
+    and,
+    or,
+    xor,
+
+    extractelement,         // Vector operations
+    insertelement,
+    shufflevector,
+
+    extractvalue,           // Aggregate operations
+    insertvalue,
+
+    alloca,                 // Memory access and addressing operations
+    load,
+    store,
+    fence,
+    cmpxchg,
+    atomicrmw,
+    getelementptr,
+
+    trunc,                  // Conversion operations
+    zext,
+    sext,
+    fptrunc,
+    fpext,
+    fptoui,
+    fptosi,
+    uitofp,
+    sitofp,
+    ptrtoint,
+    inttoptr,
+    bitcast,
+    addrspacecast,
+
+    cmp,                    // Other operations
+    phi,
+    select,
+    call,
+    mov,
+    landingpad,
+    catchpad,
+    cleanuppad
 }
 
 //-----------------------------------------------------------------------------//

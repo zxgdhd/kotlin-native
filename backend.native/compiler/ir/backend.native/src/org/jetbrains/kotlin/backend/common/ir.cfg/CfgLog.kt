@@ -61,15 +61,12 @@ fun Block.log() {
 
 fun Function.log() {
 
-//    val typeParametersStr  = reifiedTypes.joinToString()
-//    val valueParametersStr = parameters.joinToString(", ", "", "", -1, "", { it.asString() })                 // Function parameters as string.
-//    println("fun <$typeParametersStr> $name($valueParametersStr) {")                                                            // Print selectFunction declaration.
-//    if (enter != null) {
-//        val blocks = search(enter!!)                                                            // Get basic blocks of selectFunction body.
-//        blocks.reversed().forEach(Block::asString)                                                   // Print the blocks.
-//    }
-//    println("}")
-    enter.let { dotFunction(it, name) }
+    val valueParametersStr = parameters.joinToString(", ", "", "", -1, "", { it.asString() })       // Function parameters as string.
+    println("fun $name($valueParametersStr) {")                                                     // Print selectFunction declaration.
+    val blocks = search(enter)                                                                      // Get basic blocks of selectFunction body.
+    blocks.reversed().forEach(Block::log)                                                           // Print the blocks.
+    println("}")
+    enter.let { dotFunction(it, name) }                                                             // Print dot file.
 }
 
 //-----------------------------------------------------------------------------//

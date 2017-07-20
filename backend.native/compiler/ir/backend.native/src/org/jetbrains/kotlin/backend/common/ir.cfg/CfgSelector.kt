@@ -217,11 +217,28 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
 
     //-------------------------------------------------------------------------//
 
+    fun selectOperator(irCall: IrCall): Operand {
+        val def = Variable(KtType(irCall.type), currentFunction.genVariableName())
+        val uses = irCall.getArguments().map { selectStatement(it.second) }
+        when(irCall.descriptor.name.toString()) {
+            "plus"  -> currentBlock.instruction(Opcode.add,  def, *uses.toTypedArray())
+            "mul"   -> currentBlock.instruction(Opcode.mul,  def, *uses.toTypedArray())
+            "minus" -> currentBlock.instruction(Opcode.sub,  def, *uses.toTypedArray())
+            "div"   -> currentBlock.instruction(Opcode.sdiv, def, *uses.toTypedArray())
+            "srem"  -> currentBlock.instruction(Opcode.srem, def, *uses.toTypedArray())
+        }
+        return def
+    }
+
+    //-------------------------------------------------------------------------//
+
     /**
      * pass [catchBlock] if call is inside try-catch
      * function's default landing will be used otherwise
      */
     fun selectCall(irCall: IrCall): Operand {
+        if (irCall.descriptor.isOperator) return selectOperator(irCall)
+
         val callee = Variable(typePointer, irCall.descriptor.name.asString())
         val uses = listOf(callee) + irCall.getArguments().map { (_, expr) -> selectStatement(expr) }
         val def = Variable(KtType(irCall.type), currentFunction.genVariableName())
