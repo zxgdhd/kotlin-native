@@ -16,7 +16,6 @@ import org.jetbrains.kotlin.ir.symbols.IrVariableSymbol
 import org.jetbrains.kotlin.ir.util.getArguments
 import org.jetbrains.kotlin.ir.util.type
 import org.jetbrains.kotlin.ir.visitors.IrElementVisitorVoid
-import org.jetbrains.kotlin.types.typeUtil.isUnit
 
 //-----------------------------------------------------------------------------//
 
@@ -51,25 +50,26 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
     //-------------------------------------------------------------------------//
 
     private fun selectStatement(statement: IrStatement): Operand = when (statement) {
-        is IrCall -> selectCall(statement)
+        is IrCall                -> selectCall(statement)
         is IrContainerExpression -> selectContainerExpression(statement)
-        is IrConst<*> -> selectConst(statement)
-        is IrWhileLoop -> selectWhile(statement)
-        is IrBreak -> selectBreak(statement)
-        is IrContinue -> selectContinue(statement)
-        is IrReturn -> selectReturn(statement)
-        is IrWhen -> selectWhen(statement)
-        is IrSetVariable -> selectSetVariable(statement)
-        is IrVariableSymbol -> selectVariableSymbol(statement)
-        is IrValueSymbol -> selectValueSymbol(statement)
-        is IrVariable -> selectVariable(statement)
-        is IrGetValue -> selectGetValue(statement)
-        is IrVararg -> selectVararg(statement)
-        is IrThrow -> selectThrow(statement)
-        is IrTry -> selectTry(statement)
+        is IrConst<*>            -> selectConst(statement)
+        is IrWhileLoop           -> selectWhile(statement)
+        is IrBreak               -> selectBreak(statement)
+        is IrContinue            -> selectContinue(statement)
+        is IrReturn              -> selectReturn(statement)
+        is IrWhen                -> selectWhen(statement)
+        is IrSetVariable         -> selectSetVariable(statement)
+        is IrVariableSymbol      -> selectVariableSymbol(statement)
+        is IrValueSymbol         -> selectValueSymbol(statement)
+        is IrVariable            -> selectVariable(statement)
+        is IrGetValue            -> selectGetValue(statement)
+        is IrVararg              -> selectVararg(statement)
+        is IrThrow               -> selectThrow(statement)
+        is IrTry                 -> selectTry(statement)
         else -> Constant(typeString, statement.toString())
     }
 
+    //-------------------------------------------------------------------------//
 
     // TODO: add return value
     private fun selectTry(irTry: IrTry): Operand {
@@ -83,6 +83,7 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
         return operand
     }
 
+    //-------------------------------------------------------------------------//
     // Returns first catch block
     private fun selectCatches(irCatches: List<IrCatch>, tryExit: Block): Block {
         val prevBlock = currentBlock
@@ -176,16 +177,16 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
     //-------------------------------------------------------------------------//
 
     private fun selectConst(const: IrConst<*>): Constant = when(const.kind) {
-        IrConstKind.Null -> Null
+        IrConstKind.Null    -> Null
         IrConstKind.Boolean -> Constant(typeBoolean, const.value as Boolean)
-        IrConstKind.Char -> Constant(typeChar, const.value as Char)
-        IrConstKind.Byte -> Constant(typeByte, const.value as Byte)
-        IrConstKind.Short -> Constant(typeShort, const.value as Short)
-        IrConstKind.Int -> Constant(typeInt, const.value as Int)
-        IrConstKind.Long -> Constant(typeLong, const.value as Long)
-        IrConstKind.String -> Constant(typeString, const.value as String)
-        IrConstKind.Float -> Constant(typeFloat, const.value as Float)
-        IrConstKind.Double -> Constant(typeDouble, const.value as Double)
+        IrConstKind.Char    -> Constant(typeChar, const.value as Char)
+        IrConstKind.Byte    -> Constant(typeByte, const.value as Byte)
+        IrConstKind.Short   -> Constant(typeShort, const.value as Short)
+        IrConstKind.Int     -> Constant(typeInt, const.value as Int)
+        IrConstKind.Long    -> Constant(typeLong, const.value as Long)
+        IrConstKind.String  -> Constant(typeString, const.value as String)
+        IrConstKind.Float   -> Constant(typeFloat, const.value as Float)
+        IrConstKind.Double  -> Constant(typeDouble, const.value as Double)
     }
 
     //-------------------------------------------------------------------------//
@@ -195,8 +196,12 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
         ir.newFunction(currentFunction)
 
         irFunction.valueParameters
-                .map { Variable(KtType(it.type), it.descriptor.name.asString()) }
-                .let(currentFunction::addValueParameters)
+            .map {
+                val variable = Variable(KtType(it.type), it.descriptor.name.asString())
+                variableMap[it.descriptor] = variable
+                variable
+            }.let(currentFunction::addValueParameters)
+
         irFunction.body?.let {
             currentBlock = currentFunction.enter
             currentLandingBlock = currentFunction.defaultLanding

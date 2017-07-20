@@ -4,7 +4,8 @@ package org.jetbrains.kotlin.backend.common.ir.cfg
 
 fun Instruction.asString(): String {
 
-    if (opcode == Opcode.call) return callAsString()
+    if (opcode == Opcode.call)   return callAsString()
+    if (opcode == Opcode.invoke) return callAsString()
     val buff = StringBuilder()
     if (defs.isNotEmpty()) {
         buff.append(defs.joinToString())
