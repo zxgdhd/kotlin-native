@@ -16,6 +16,7 @@ import org.jetbrains.kotlin.ir.symbols.IrVariableSymbol
 import org.jetbrains.kotlin.ir.util.getArguments
 import org.jetbrains.kotlin.ir.util.type
 import org.jetbrains.kotlin.ir.visitors.IrElementVisitorVoid
+import org.jetbrains.kotlin.types.KotlinType
 
 //-----------------------------------------------------------------------------//
 
@@ -27,6 +28,7 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
     private var currentLandingBlock = currentFunction.defaultLanding
 
     val variableMap = mutableMapOf<ValueDescriptor, Operand>()
+    val typeMap     = mutableMapOf<KotlinType, Class>()
     private data class LoopLabels(val loop: IrLoop, val check: Block, val exit: Block)
     private val loopStack = mutableListOf<LoopLabels>()
 
@@ -99,8 +101,8 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
         when (statement.operator) {
             IrTypeOperator.CAST                      -> selectCast           (statement)
             IrTypeOperator.IMPLICIT_INTEGER_COERCION -> selectIntegerCoercion(statement)
-            IrTypeOperator.IMPLICIT_CAST             -> selectImplicitCast    (statement)
-            IrTypeOperator.IMPLICIT_NOTNULL          -> selectImplicitNotNull (statement)
+            IrTypeOperator.IMPLICIT_CAST             -> selectImplicitCast   (statement)
+            IrTypeOperator.IMPLICIT_NOTNULL          -> selectImplicitNotNull(statement)
             IrTypeOperator.IMPLICIT_COERCION_TO_UNIT -> selectCoercionToUnit (statement)
             IrTypeOperator.SAFE_CAST                 -> selectSafeCast       (statement)
             IrTypeOperator.INSTANCEOF                -> selectInstanceOf     (statement)
@@ -109,57 +111,59 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
 
     //-------------------------------------------------------------------------//
 
-    private fun  selectCast(statement: IrTypeOperatorCall): Operand {
+    private fun selectCast(statement: IrTypeOperatorCall): Operand {
         println("Not implemented yet: selectIntegerCoercion")
         return Variable(typeInt, "invalid")
     }
 
     //-------------------------------------------------------------------------//
 
-    private fun  selectIntegerCoercion(statement: IrTypeOperatorCall): Operand {
+    private fun selectIntegerCoercion(statement: IrTypeOperatorCall): Operand {
         println("Not implemented yet: selectIntegerCoercion")
         return Variable(typeInt, "invalid")
     }
 
     //-------------------------------------------------------------------------//
 
-    private fun  selectImplicitCast(statement: IrTypeOperatorCall): Operand {
-        println("Not implemented yet: selectImplictCast")
+    private fun selectImplicitCast(statement: IrTypeOperatorCall): Operand {
+        println("Not implemented yet: selectImplicitCast")
         return Variable(typeInt, "invalid")
     }
 
     //-------------------------------------------------------------------------//
 
-    private fun  selectImplicitNotNull(statement: IrTypeOperatorCall): Operand {
-        println("Not implemented yet: selectImplictNotNull")
+    private fun selectImplicitNotNull(statement: IrTypeOperatorCall): Operand {
+        println("Not implemented yet: selectImplicitNotNull")
         return Variable(typeInt, "invalid")
     }
 
     //-------------------------------------------------------------------------//
 
-    private fun  selectCoercionToUnit(statement: IrTypeOperatorCall): Operand {
+    private fun selectCoercionToUnit(statement: IrTypeOperatorCall): Operand {
         println("Not implemented yet: selectCoercionToUnit")
         return Variable(typeInt, "invalid")
     }
 
     //-------------------------------------------------------------------------//
 
-    private fun  selectSafeCast(statement: IrTypeOperatorCall): Operand {
+    private fun selectSafeCast(statement: IrTypeOperatorCall): Operand {
         println("Not implemented yet: selectSafeCast")
         return Variable(typeInt, "invalid")
     }
 
     //-------------------------------------------------------------------------//
 
-    private fun  selectInstanceOf(statement: IrTypeOperatorCall): Operand {
+    private fun selectInstanceOf(statement: IrTypeOperatorCall): Operand {
         val def   = newVariable(typeBoolean)
         val value = selectStatement(statement.argument)
-        return Variable(typeInt, "invalid")
+        val type  = Constant(typePointer, typeMap[statement.typeOperand])
+        currentBlock.instruction(Opcode.InstanceOf, def, value, type)
+        return def
     }
 
     //-------------------------------------------------------------------------//
 
-    private fun  selectNotInstanceOf(statement: IrTypeOperatorCall): Operand {
+    private fun selectNotInstanceOf(statement: IrTypeOperatorCall): Operand {
         println("Not implemented yet: selectNotInstanceOf")
         return Variable(typeInt, "invalid")
     }
