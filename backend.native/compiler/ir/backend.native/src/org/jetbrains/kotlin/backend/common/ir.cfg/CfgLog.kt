@@ -53,14 +53,13 @@ fun Constant.asString() =
 //-----------------------------------------------------------------------------//
 
 fun Block.log() {
-    println("\n    block $name:")
+    println("    block $name:")
     instructions.forEach { println("        $it") }
 }
 
 //-----------------------------------------------------------------------------//
 
 fun Function.log() {
-
     val valueParametersStr = parameters.joinToString(", ", "", "", -1, "", { it.asString() })       // Function parameters as string.
     println("\nfun $name($valueParametersStr) {")                                                     // Print selectFunction declaration.
     val blocks = search(enter)                                                                      // Get basic blocks of selectFunction body.
