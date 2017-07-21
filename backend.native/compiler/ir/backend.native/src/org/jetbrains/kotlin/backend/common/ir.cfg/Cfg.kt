@@ -1,10 +1,8 @@
 package org.jetbrains.kotlin.backend.common.ir.cfg
 
-import org.jetbrains.kotlin.types.KotlinType
-
 //-----------------------------------------------------------------------------//
 
-enum class SimpleType {
+enum class Type {
     double,
     float,
     long,
@@ -19,18 +17,6 @@ enum class SimpleType {
 
 //-----------------------------------------------------------------------------//
 
-open class Type(val simpleType: SimpleType) {
-    override fun toString() = simpleType.toString()
-}
-
-//-----------------------------------------------------------------------------//
-
-class KtType(val kotlinType: KotlinType) : Type(SimpleType.pointer) {
-    override fun toString() = kotlinType.toString()
-}
-
-//-----------------------------------------------------------------------------//
-
 abstract class Operand(val type: Type) {
     val uses = mutableListOf<Instruction>()
     val defs = mutableListOf<Instruction>()
@@ -38,13 +24,19 @@ abstract class Operand(val type: Type) {
 
 //-----------------------------------------------------------------------------//
 
-class Variable(type: Type, val name: String): Operand(type) {
+class Constant(type: Type, val value: Any?): Operand(type) {
     override fun toString() = asString()
 }
 
 //-----------------------------------------------------------------------------//
 
-class Constant(type: Type, val value: Any?): Operand(type) {
+open class Variable(type: Type, val name: String): Operand(type) {
+    override fun toString() = asString()
+}
+
+//-----------------------------------------------------------------------------//
+
+class Reference(val klass: Class?, name: String): Variable(Type.pointer, name) {
     override fun toString() = asString()
 }
 
@@ -72,7 +64,7 @@ class Block(val name: String) {
 class Function(val name: String) {
     val reifiedTypes = mutableListOf<Type>()
     val parameters   = mutableListOf<Variable>()
-    var enter = Block("${name}_enter")
+    var enter = Block("enter")
     val defaultLanding = Block("${name}_landingpad")
     var maxBlockId    = 0
     var maxVariableId = 0
@@ -82,10 +74,11 @@ class Function(val name: String) {
 
 //-----------------------------------------------------------------------------//
 
-class Class(val name: String): Type(SimpleType.pointer) {
-    val superclasses = mutableListOf<Class>()
-    val methods      = mutableListOf<Function>()
-    val fields       = mutableListOf<Variable>()
+class Class(val name: String) {
+    val superClass: Class? = null
+    val interfaces = mutableListOf<Class>()
+    val methods    = mutableListOf<Function>()
+    val fields     = mutableListOf<Variable>()
 
     override fun toString() = name
 }
@@ -100,7 +93,6 @@ class Ir {
     fun newFunction(function: Function) {
         functions[function.name] = function
     }
-
 }
 
 //-----------------------------------------------------------------------------//
@@ -172,14 +164,14 @@ enum class Opcode {
     cleanuppad,
     invalid,
 
-    Cast,                   // Type operations (workaround)
-    IntegerCoercion,
-    ImplicitCast,
-    ImplicitNotNull,
-    CoercionToUnit,
-    SafeCast,
-    InstanceOf,
-    NotInstanceOf
+    cast,                   // Type operations (workaround)
+    integer_coercion,
+    implicit_cast,
+    implicit_not_null,
+    coercion_to_unit,
+    safe_cast,
+    instance_of,
+    not_instance_of
 }
 
 //-----------------------------------------------------------------------------//

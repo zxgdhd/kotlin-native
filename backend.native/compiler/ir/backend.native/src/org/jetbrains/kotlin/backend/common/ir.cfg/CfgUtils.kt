@@ -2,20 +2,8 @@ package org.jetbrains.kotlin.backend.common.ir.cfg
 
 //-----------------------------------------------------------------------------//
 
-val typeDouble  = Type(SimpleType.double)
-val typeFloat   = Type(SimpleType.float)
-val typeLong    = Type(SimpleType.long)
-val typeInt     = Type(SimpleType.int)
-val typeShort   = Type(SimpleType.short)
-val typeByte    = Type(SimpleType.byte)
-val typeChar    = Type(SimpleType.char)
-val typeString  = Type(SimpleType.string)
-val typeBoolean = Type(SimpleType.boolean)
-val typePointer = Type(SimpleType.pointer)
-
-val Null = Constant(typePointer, 0)
-
-val CfgUnit = Constant(typePointer, 0)
+val CfgNull = Constant(Type.pointer, 0)
+val CfgUnit = Constant(Type.pointer, 0)
 
 //--- Operand -----------------------------------------------------------------//
 
@@ -113,7 +101,6 @@ fun Block.mov(def: Variable, use: Operand) {
 //-----------------------------------------------------------------------------//
 
 fun Block.ret(use: Operand) {
-
     val instruction = instruction(Opcode.ret)
     instruction.addUse(use)
 }
@@ -121,9 +108,8 @@ fun Block.ret(use: Operand) {
 //-----------------------------------------------------------------------------//
 
 fun Block.br(target: Block) {
-
     val instruction   = instruction(Opcode.br)
-    val targetOperand = Constant(typePointer, target)
+    val targetOperand = Constant(Type.pointer, target)
     instruction.addUse(targetOperand)
 
     addSuccessor(target)
@@ -132,10 +118,9 @@ fun Block.br(target: Block) {
 //-----------------------------------------------------------------------------//
 
 fun Block.condBr(condition: Operand, targetTrue: Block, targetFalse: Block) {
-
     val instruction = instruction(Opcode.condbr)
-    val targetTrueOperand  = Constant(typePointer, targetTrue)
-    val targetFalseOperand = Constant(typePointer, targetFalse)
+    val targetTrueOperand  = Constant(Type.pointer, targetTrue)
+    val targetFalseOperand = Constant(Type.pointer, targetFalse)
     instruction.addUse(condition)
     instruction.addUse(targetTrueOperand)
     instruction.addUse(targetFalseOperand)
@@ -154,8 +139,8 @@ fun Block.isLastInstructionTerminal(): Boolean
 fun Block.invoke(targetSuccess: Block, targetFail: Block, def: Variable, vararg uses: Operand) {
     with(instruction(Opcode.invoke)) {
         addUse(uses[0]) // function name
-        addUse(Constant(typePointer, targetSuccess))
-        addUse(Constant(typePointer, targetFail))
+        addUse(Constant(Type.pointer, targetSuccess))
+        addUse(Constant(Type.pointer, targetFail))
         uses.drop(1).forEach(this::addUse)
         addDef(def)
     }
