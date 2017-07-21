@@ -170,7 +170,16 @@ enum class Opcode {
     landingpad,
     catchpad,
     cleanuppad,
-    invalid
+    invalid,
+
+    Cast,                   // Type operations (workaround)
+    IntegerCoercion,
+    ImplicitCast,
+    ImplicitNotNull,
+    CoercionToUnit,
+    SafeCast,
+    InstanceOf,
+    NotInstanceOf
 }
 
 //-----------------------------------------------------------------------------//
