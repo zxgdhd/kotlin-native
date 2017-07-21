@@ -53,7 +53,7 @@ fun Constant.asString() =
 //-----------------------------------------------------------------------------//
 
 fun Block.log() {
-    println("    block $name")
+    println("\n    block $name:")
     instructions.forEach { println("        $it") }
 }
 
@@ -62,7 +62,7 @@ fun Block.log() {
 fun Function.log() {
 
     val valueParametersStr = parameters.joinToString(", ", "", "", -1, "", { it.asString() })       // Function parameters as string.
-    println("fun $name($valueParametersStr) {")                                                     // Print selectFunction declaration.
+    println("\nfun $name($valueParametersStr) {")                                                     // Print selectFunction declaration.
     val blocks = search(enter)                                                                      // Get basic blocks of selectFunction body.
     blocks.reversed().forEach(Block::log)                                                           // Print the blocks.
     println("}")

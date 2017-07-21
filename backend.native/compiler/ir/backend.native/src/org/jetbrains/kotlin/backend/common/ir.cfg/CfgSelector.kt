@@ -21,16 +21,13 @@ import org.jetbrains.kotlin.ir.visitors.IrElementVisitorVoid
 
 internal class CfgSelector(val context: Context): IrElementVisitorVoid {
 
-
     private val ir = Ir()
     private var currentBlock: Block = Block("Entry")
     private var currentFunction = Function("Outer")
     private var currentLandingBlock = currentFunction.defaultLanding
 
     val variableMap = mutableMapOf<ValueDescriptor, Operand>()
-
     private data class LoopLabels(val loop: IrLoop, val check: Block, val exit: Block)
-
     private val loopStack = mutableListOf<LoopLabels>()
 
     //-------------------------------------------------------------------------//
@@ -50,22 +47,22 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
     //-------------------------------------------------------------------------//
 
     private fun selectStatement(statement: IrStatement): Operand = when (statement) {
-        is IrCall                -> selectCall(statement)
+        is IrCall                -> selectCall               (statement)
         is IrContainerExpression -> selectContainerExpression(statement)
-        is IrConst<*>            -> selectConst(statement)
-        is IrWhileLoop           -> selectWhile(statement)
-        is IrBreak               -> selectBreak(statement)
-        is IrContinue            -> selectContinue(statement)
-        is IrReturn              -> selectReturn(statement)
-        is IrWhen                -> selectWhen(statement)
-        is IrSetVariable         -> selectSetVariable(statement)
-        is IrVariableSymbol      -> selectVariableSymbol(statement)
-        is IrValueSymbol         -> selectValueSymbol(statement)
-        is IrVariable            -> selectVariable(statement)
-        is IrGetValue            -> selectGetValue(statement)
-        is IrVararg              -> selectVararg(statement)
-        is IrThrow               -> selectThrow(statement)
-        is IrTry                 -> selectTry(statement)
+        is IrConst<*>            -> selectConst              (statement)
+        is IrWhileLoop           -> selectWhile              (statement)
+        is IrBreak               -> selectBreak              (statement)
+        is IrContinue            -> selectContinue           (statement)
+        is IrReturn              -> selectReturn             (statement)
+        is IrWhen                -> selectWhen               (statement)
+        is IrSetVariable         -> selectSetVariable        (statement)
+        is IrVariableSymbol      -> selectVariableSymbol     (statement)
+        is IrValueSymbol         -> selectValueSymbol        (statement)
+        is IrVariable            -> selectVariable           (statement)
+        is IrGetValue            -> selectGetValue           (statement)
+        is IrVararg              -> selectVararg             (statement)
+        is IrThrow               -> selectThrow              (statement)
+        is IrTry                 -> selectTry                (statement)
         else -> Constant(typeString, statement.toString())
     }
 
@@ -146,7 +143,6 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
     //-------------------------------------------------------------------------//
 
     private fun selectContainerExpression(expression: IrContainerExpression): Operand {
-
         expression.statements.dropLast(1).forEach {
             selectStatement(it)
         }
@@ -157,7 +153,6 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
     //-------------------------------------------------------------------------//
 
     private fun selectReturn(irReturn: IrReturn): Operand {
-
         val target = irReturn.returnTarget
         val evaluated = selectStatement(irReturn.value)
         currentBlock.ret(evaluated)
@@ -166,7 +161,6 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
         } else {
             evaluated
         }
-
     }
 
     //-------------------------------------------------------------------------//
@@ -179,14 +173,14 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
     private fun selectConst(const: IrConst<*>): Constant = when(const.kind) {
         IrConstKind.Null    -> Null
         IrConstKind.Boolean -> Constant(typeBoolean, const.value as Boolean)
-        IrConstKind.Char    -> Constant(typeChar, const.value as Char)
-        IrConstKind.Byte    -> Constant(typeByte, const.value as Byte)
-        IrConstKind.Short   -> Constant(typeShort, const.value as Short)
-        IrConstKind.Int     -> Constant(typeInt, const.value as Int)
-        IrConstKind.Long    -> Constant(typeLong, const.value as Long)
-        IrConstKind.String  -> Constant(typeString, const.value as String)
-        IrConstKind.Float   -> Constant(typeFloat, const.value as Float)
-        IrConstKind.Double  -> Constant(typeDouble, const.value as Double)
+        IrConstKind.Char    -> Constant(typeChar,    const.value as Char)
+        IrConstKind.Byte    -> Constant(typeByte,    const.value as Byte)
+        IrConstKind.Short   -> Constant(typeShort,   const.value as Short)
+        IrConstKind.Int     -> Constant(typeInt,     const.value as Int)
+        IrConstKind.Long    -> Constant(typeLong,    const.value as Long)
+        IrConstKind.String  -> Constant(typeString,  const.value as String)
+        IrConstKind.Float   -> Constant(typeFloat,   const.value as Float)
+        IrConstKind.Double  -> Constant(typeDouble,  const.value as Double)
     }
 
     //-------------------------------------------------------------------------//
@@ -218,15 +212,21 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
     //-------------------------------------------------------------------------//
 
     fun selectOperator(irCall: IrCall): Operand {
-        val def = Variable(KtType(irCall.type), currentFunction.genVariableName())
+        val def  = Variable(KtType(irCall.type), currentFunction.genVariableName())
         val uses = irCall.getArguments().map { selectStatement(it.second) }
-        when(irCall.descriptor.name.toString()) {
-            "plus"  -> currentBlock.instruction(Opcode.add,  def, *uses.toTypedArray())
-            "mul"   -> currentBlock.instruction(Opcode.mul,  def, *uses.toTypedArray())
-            "minus" -> currentBlock.instruction(Opcode.sub,  def, *uses.toTypedArray())
-            "div"   -> currentBlock.instruction(Opcode.sdiv, def, *uses.toTypedArray())
-            "srem"  -> currentBlock.instruction(Opcode.srem, def, *uses.toTypedArray())
+        val opcode = when(irCall.descriptor.name.toString()) {
+            "plus"  -> Opcode.add
+            "minus" -> Opcode.sub
+            "times" -> Opcode.mul
+            "div"   -> Opcode.sdiv
+            "srem"  -> Opcode.srem
+            else -> {
+                println("ERROR: unsupported operator type \"${irCall.descriptor.name}\"")
+                Opcode.invalid
+            }
         }
+
+        currentBlock.instruction(opcode, def, *uses.toTypedArray())
         return def
     }
 
@@ -286,7 +286,6 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
     //-------------------------------------------------------------------------//
 
     private fun selectWhenClause(irBranch: IrBranch, nextBlock: Block, exitBlock: Block, variable: Variable?) {
-
         currentBlock = if (isUnconditional(irBranch)) {
             currentBlock
         } else {
@@ -308,7 +307,6 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
     //-------------------------------------------------------------------------//
 
     fun selectWhile(irWhileLoop: IrWhileLoop): Operand {
-
         val loopCheck = currentFunction.newBlock("loop_check")
         val loopBody = currentFunction.newBlock("loop_body")
         val loopExit = currentFunction.newBlock("loop_exit")
@@ -359,10 +357,8 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
 
     fun selectVariable(irVariable: IrVariable): Operand {
         val operand = irVariable.initializer?.let { selectStatement(it) } ?: Null
-        val variable = Variable(KtType(irVariable.descriptor.type), irVariable.descriptor.name.asString())
         variableMap[irVariable.descriptor] = operand
-        currentBlock.mov(variable, operand)
-        return variable
+        return operand
     }
 
     //-------------------------------------------------------------------------//

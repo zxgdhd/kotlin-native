@@ -169,7 +169,8 @@ enum class Opcode {
     mov,
     landingpad,
     catchpad,
-    cleanuppad
+    cleanuppad,
+    invalid
 }
 
 //-----------------------------------------------------------------------------//
