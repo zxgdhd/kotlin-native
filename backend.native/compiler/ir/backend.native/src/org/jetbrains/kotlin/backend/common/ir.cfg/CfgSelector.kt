@@ -125,8 +125,8 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
 
     private fun selectCast(statement: IrTypeOperatorCall): Operand {
         val value = selectStatement(statement.argument)                                     // Evaluate object to compare.
-        val newType = statement.typeOperand.toCfgType()
-        return newInstruction(Opcode.cast, newType, value)
+        val type  = statement.typeOperand.toCfgType()
+        return inst(Opcode.cast, type, value)
     }
 
     //-------------------------------------------------------------------------//
@@ -160,8 +160,9 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
     //-------------------------------------------------------------------------//
 
     private fun selectSafeCast(statement: IrTypeOperatorCall): Operand {
-        println("Not implemented yet: selectSafeCast")
-        return Variable(Type.int, "invalid")
+        val value = selectStatement(statement.argument)                                     // Evaluate object to compare.
+        val type  = statement.typeOperand.toCfgType()
+        return inst(Opcode.cast, type, value)
     }
 
     //-------------------------------------------------------------------------//
@@ -170,7 +171,7 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
         val value = selectStatement(statement.argument)                                     // Evaluate object to compare.
         val klass = statement.typeOperand.toCfgType()                                       // Class to compare.
         val type  = Constant(klass, klass)                                                  // Operand representing the Class.
-        return newInstruction(Opcode.instance_of, Type.boolean, value, type)
+        return inst(Opcode.instance_of, Type.boolean, value, type)
     }
 
     //-------------------------------------------------------------------------//
@@ -179,7 +180,7 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
         val value = selectStatement(statement.argument)                                     // Evaluate object to compare.
         val klass = statement.typeOperand.toCfgType()                                       // Class to compare.
         val type  = Constant(klass, klass)                                                  // Operand representing the Class.
-        return newInstruction(Opcode.not_instance_of, Type.boolean, value, type)
+        return inst(Opcode.not_instance_of, Type.boolean, value, type)
     }
 
     //-------------------------------------------------------------------------//
@@ -489,7 +490,7 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
 
     //-------------------------------------------------------------------------//
 
-    private fun newInstruction(opcode: Opcode, type: Type, use: Operand): Operand {
+    private fun inst(opcode: Opcode, type: Type, use: Operand): Operand {
         val def = newVariable(type)
         currentBlock.instruction(opcode, def, use)
         return def
@@ -497,7 +498,7 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
 
     //-------------------------------------------------------------------------//
 
-    private fun newInstruction(opcode: Opcode, type: Type, use1: Operand, use2: Operand): Operand {
+    private fun inst(opcode: Opcode, type: Type, use1: Operand, use2: Operand): Operand {
         val def = newVariable(type)
         currentBlock.instruction(opcode, def, use1, use2)
         return def
