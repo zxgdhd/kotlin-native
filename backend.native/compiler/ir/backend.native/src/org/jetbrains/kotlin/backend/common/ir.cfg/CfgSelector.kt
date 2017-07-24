@@ -133,35 +133,35 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
 
     private fun selectIntegerCoercion(statement: IrTypeOperatorCall): Operand {
         println("Not implemented yet: selectIntegerCoercion")
-        return Variable(Type.i32, "invalid")
+        return Variable(Type.int, "invalid")
     }
 
     //-------------------------------------------------------------------------//
 
     private fun selectImplicitCast(statement: IrTypeOperatorCall): Operand {
         println("Not implemented yet: selectImplicitCast")
-        return Variable(Type.i32, "invalid")
+        return Variable(Type.int, "invalid")
     }
 
     //-------------------------------------------------------------------------//
 
     private fun selectImplicitNotNull(statement: IrTypeOperatorCall): Operand {
         println("Not implemented yet: selectImplicitNotNull")
-        return Variable(Type.i32, "invalid")
+        return Variable(Type.int, "invalid")
     }
 
     //-------------------------------------------------------------------------//
 
     private fun selectCoercionToUnit(statement: IrTypeOperatorCall): Operand {
         println("Not implemented yet: selectCoercionToUnit")
-        return Variable(Type.i32, "invalid")
+        return Variable(Type.int, "invalid")
     }
 
     //-------------------------------------------------------------------------//
 
     private fun selectSafeCast(statement: IrTypeOperatorCall): Operand {
         println("Not implemented yet: selectSafeCast")
-        return Variable(Type.i32, "invalid")
+        return Variable(Type.int, "invalid")
     }
 
     //-------------------------------------------------------------------------//
@@ -170,7 +170,7 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
         val value = selectStatement(statement.argument)                                     // Evaluate object to compare.
         val klass = statement.typeOperand.toCfgType()                                       // Class to compare.
         val type  = Constant(klass, klass)                                                  // Operand representing the Class.
-        return newInstruction(Opcode.instance_of, Type.i1, value, type)
+        return newInstruction(Opcode.instance_of, Type.boolean, value, type)
     }
 
     //-------------------------------------------------------------------------//
@@ -179,7 +179,7 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
         val value = selectStatement(statement.argument)                                     // Evaluate object to compare.
         val klass = statement.typeOperand.toCfgType()                                       // Class to compare.
         val type  = Constant(klass, klass)                                                  // Operand representing the Class.
-        return newInstruction(Opcode.not_instance_of, Type.i1, value, type)
+        return newInstruction(Opcode.not_instance_of, Type.boolean, value, type)
     }
 
     //-------------------------------------------------------------------------//
@@ -241,15 +241,15 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
 
     private fun selectConst(const: IrConst<*>): Constant = when(const.kind) {
         IrConstKind.Null    -> CfgNull
-        IrConstKind.Boolean -> Constant(Type.i1,    const.value as Boolean)
-        IrConstKind.Char    -> Constant(Type.i16,   const.value as Char)
-        IrConstKind.Byte    -> Constant(Type.i8,    const.value as Byte)
-        IrConstKind.Short   -> Constant(Type.i16,   const.value as Short)
-        IrConstKind.Int     -> Constant(Type.i32,   const.value as Int)
-        IrConstKind.Long    -> Constant(Type.i64,   const.value as Long)
-        IrConstKind.Float   -> Constant(Type.f32,   const.value as Float)
-        IrConstKind.String  -> Constant(Type.ptr,   const.value as String) // TODO: Add pointer to String class
-        IrConstKind.Double  -> Constant(Type.f64,   const.value as Double)
+        IrConstKind.Boolean -> Constant(Type.boolean, const.value as Boolean)
+        IrConstKind.Char    -> Constant(Type.short,   const.value as Char)
+        IrConstKind.Byte    -> Constant(Type.byte,    const.value as Byte)
+        IrConstKind.Short   -> Constant(Type.short,   const.value as Short)
+        IrConstKind.Int     -> Constant(Type.int,     const.value as Int)
+        IrConstKind.Long    -> Constant(Type.long,    const.value as Long)
+        IrConstKind.Float   -> Constant(Type.float,   const.value as Float)
+        IrConstKind.String  -> Constant(Type.ptr,     const.value as String) // TODO: Add pointer to String class
+        IrConstKind.Double  -> Constant(Type.double,  const.value as Double)
     }
 
     //-------------------------------------------------------------------------//
@@ -411,7 +411,7 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
                 currentFunction.newBlock("check_for_${it.parameter.name.asString()}")
             }
 
-            val isInstance = Variable(Type.i1, "is_instance")
+            val isInstance = Variable(Type.boolean, "is_instance")
             currentBlock.instruction(Opcode.call, isInstance, isInstanceFunc, exception)
             currentBlock.condBr(isInstance, catchBody, nextCatch)
 
@@ -472,14 +472,14 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
         }
 
         return when (correspondingValueType) {
-            ValueType.BOOLEAN        -> Type.i1
-            ValueType.CHAR           -> Type.i16
-            ValueType.BYTE           -> Type.i8
-            ValueType.SHORT          -> Type.i16
-            ValueType.INT            -> Type.i32
-            ValueType.LONG           -> Type.i64
-            ValueType.FLOAT          -> Type.f32
-            ValueType.DOUBLE         -> Type.f64
+            ValueType.BOOLEAN        -> Type.boolean
+            ValueType.CHAR           -> Type.short
+            ValueType.BYTE           -> Type.byte
+            ValueType.SHORT          -> Type.short
+            ValueType.INT            -> Type.int
+            ValueType.LONG           -> Type.long
+            ValueType.FLOAT          -> Type.float
+            ValueType.DOUBLE         -> Type.double
             ValueType.NATIVE_PTR     -> Type.ptr
             ValueType.NATIVE_POINTED -> Type.ptr
             ValueType.C_POINTER      -> Type.ptr

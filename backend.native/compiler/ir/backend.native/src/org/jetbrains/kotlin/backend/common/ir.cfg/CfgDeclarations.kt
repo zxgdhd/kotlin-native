@@ -17,7 +17,7 @@ import org.jetbrains.kotlin.resolve.descriptorUtil.fqNameSafe
 
 data class CfgDeclarations(
         private val functions: MutableMap<FunctionDescriptor, Function>,
-        private val classes: MutableMap<ClassDescriptor, Class>
+        private val classes: MutableMap<ClassDescriptor, Klass>
 ) {
     fun getFunc(descriptor: FunctionDescriptor) : Function {
         if (functions[descriptor] == null) {
@@ -26,9 +26,9 @@ data class CfgDeclarations(
         return functions[descriptor]!!
     }
 
-    fun getClass(descriptor: ClassDescriptor) : Class {
+    fun getClass(descriptor: ClassDescriptor) : Klass {
         if (classes[descriptor] == null) {
-            classes[descriptor] = Class(descriptor.name.asString())
+            classes[descriptor] = Klass(descriptor.name.asString())
         }
         return classes[descriptor]!!
     }
@@ -42,7 +42,7 @@ internal fun createCfgDeclarations(context: Context): CfgDeclarations
 
 private class CfgDeclarationsGenerator(override val context: Context) :
         IrElementVisitorVoid, ContextUtils {
-    val classes = mutableMapOf<ClassDescriptor, Class>()
+    val classes = mutableMapOf<ClassDescriptor, Klass>()
     val functions = mutableMapOf<FunctionDescriptor, Function>()
 
     override fun visitElement(element: IrElement) = element.acceptChildrenVoid(this)
@@ -63,10 +63,10 @@ private class CfgDeclarationsGenerator(override val context: Context) :
         super.visitField(declaration)
     }
 
-    private fun createClassDeclaration(declaration: IrClass): Class {
+    private fun createClassDeclaration(declaration: IrClass): Klass {
         val descriptor = declaration.descriptor
 
-        val klass = Class(descriptor.fqNameSafe.toString())
+        val klass = Klass(descriptor.fqNameSafe.toString())
 
         getFields(descriptor).forEach {
            //klass.fields.add()

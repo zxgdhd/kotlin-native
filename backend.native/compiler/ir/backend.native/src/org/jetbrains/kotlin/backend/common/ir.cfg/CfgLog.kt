@@ -2,8 +2,36 @@ package org.jetbrains.kotlin.backend.common.ir.cfg
 
 //-----------------------------------------------------------------------------//
 
-fun Instruction.asString(): String {
+fun Type.asString(): String = when (this) {
+    Type.boolean       -> "boolean"
+    Type.byte          -> "byte"
+    Type.short         -> "short"
+    Type.int           -> "int"
+    Type.long          -> "long"
+    Type.float         -> "float"
+    Type.double        -> "double"
+    Type.char          -> "char"
+    Type.ptr           -> "ptr"
+    is Type.classPtr   -> klass.name
+    is Type.funcPtr    -> function.name
+    is Type.operandPtr -> "${type.toString()}*"
+}
 
+//-----------------------------------------------------------------------------//
+
+fun Variable.asString() = "%$name:$type"
+
+//-----------------------------------------------------------------------------//
+
+fun Constant.asString() =
+    when(type) {
+        Type.boolean -> if (value == 1) "true" else "false"
+        else         -> value.toString()
+    }
+
+//-----------------------------------------------------------------------------//
+
+fun Instruction.asString(): String {
     if (opcode == Opcode.call)   return callAsString()
     if (opcode == Opcode.invoke) return callAsString()
     val buff = StringBuilder()
@@ -20,9 +48,6 @@ fun Instruction.asString(): String {
 
 //-----------------------------------------------------------------------------//
 
-//invoke void @"kfun:main(kotlin.Array<kotlin.String>)"(%struct.ObjHeader* %0)
-//to label %call_success unwind label %cleanup_landingpad
-
 fun Instruction.callAsString(): String {
     val buff = StringBuilder()
     if (defs.size > 0) {
@@ -35,18 +60,6 @@ fun Instruction.callAsString(): String {
 
     return buff.toString()
 }
-
-//-----------------------------------------------------------------------------//
-
-fun Variable.asString() = "%$name:$type"
-
-//-----------------------------------------------------------------------------//
-
-fun Constant.asString() =
-    when(type) {
-        Type.i1 -> if (value == 1) "true" else "false"
-        else         -> value.toString()
-    }
 
 //-----------------------------------------------------------------------------//
 
@@ -68,7 +81,7 @@ fun Function.log() {
 
 //-----------------------------------------------------------------------------//
 
-fun Class.log() {
+fun Klass.log() {
     println("class $name {")
     fields.forEach  { println("    field $it") }
     methods.forEach { println("    fun   $it") }

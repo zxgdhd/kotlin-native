@@ -2,8 +2,8 @@ package org.jetbrains.kotlin.backend.common.ir.cfg
 
 //-----------------------------------------------------------------------------//
 
-val CfgNull = Constant(Type.operandPtr(Type.i1), 0)
-val CfgUnit = Constant(Type.operandPtr(Type.i1), 0)
+val CfgNull = Constant(Type.operandPtr(Type.boolean), 0)
+val CfgUnit = Constant(Type.operandPtr(Type.boolean), 0)
 
 //--- Operand -----------------------------------------------------------------//
 
@@ -109,7 +109,7 @@ fun Block.ret(use: Operand) {
 
 fun Block.br(target: Block) {
     val instruction   = instruction(Opcode.br)
-    val targetOperand = Constant(Type.operandPtr(Type.i64), target)
+    val targetOperand = Constant(Type.operandPtr(Type.long), target)
     instruction.addUse(targetOperand)
 
     addSuccessor(target)
@@ -119,8 +119,8 @@ fun Block.br(target: Block) {
 
 fun Block.condBr(condition: Operand, targetTrue: Block, targetFalse: Block) {
     val instruction = instruction(Opcode.condbr)
-    val targetTrueOperand  = Constant(Type.operandPtr(Type.i64), targetTrue)
-    val targetFalseOperand = Constant(Type.operandPtr(Type.i64), targetFalse)
+    val targetTrueOperand  = Constant(Type.operandPtr(Type.long), targetTrue)
+    val targetFalseOperand = Constant(Type.operandPtr(Type.long), targetFalse)
     instruction.addUse(condition)
     instruction.addUse(targetTrueOperand)
     instruction.addUse(targetFalseOperand)
@@ -139,8 +139,8 @@ fun Block.isLastInstructionTerminal(): Boolean
 fun Block.invoke(targetSuccess: Block, targetFail: Block, def: Variable, vararg uses: Operand) {
     with(instruction(Opcode.invoke)) {
         addUse(uses[0]) // function name
-        addUse(Constant(Type.operandPtr(Type.i64), targetSuccess))
-        addUse(Constant(Type.operandPtr(Type.i64), targetFail))
+        addUse(Constant(Type.operandPtr(Type.long), targetSuccess))
+        addUse(Constant(Type.operandPtr(Type.long), targetFail))
         uses.drop(1).forEach(this::addUse)
         addDef(def)
     }

@@ -2,25 +2,28 @@ package org.jetbrains.kotlin.backend.common.ir.cfg
 
 //-----------------------------------------------------------------------------//
 
-sealed class Type(size: Int) {
-    object i1 : Type(1)
-    object i8 : Type(1)
-    object i16 : Type(2)
-    object i32 : Type(4)
-    object i64 : Type(8)
-    object f32 : Type(4)
-    object f64 : Type(8)
-    object ptr : Type(8)
-    class classPtr(klass: Class) : Type(8)
-    class funcPtr(function: Function) : Type(8)
-    class operandPtr(operandType: Type) : Type(8)
+sealed class Type(val size: Int) {
+    object boolean: Type(1)
+    object byte   : Type(1)
+    object short  : Type(2)
+    object int    : Type(4)
+    object long   : Type(8)
+    object float  : Type(4)
+    object double : Type(8)
+    object char   : Type(4)
+    object ptr    : Type(8)
+    class classPtr  (val klass   : Klass) : Type(8)
+    class funcPtr   (val function: Function) : Type(8)
+    class operandPtr(val type    : Type    ) : Type(8)
+
+    override fun toString() = asString()
 }
 
 //-----------------------------------------------------------------------------//
 
-class Class(val name: String) {
-    val superClass: Class? = null
-    val interfaces = mutableListOf<Class>()
+class Klass(val name: String) {
+    val superClass: Klass? = null
+    val interfaces = mutableListOf<Klass>()
     val methods    = mutableListOf<Function>()
     val fields     = mutableListOf<Variable>()
 
@@ -82,7 +85,7 @@ class Function(val name: String) {
 
 class Ir {
     val functions  = mutableMapOf<String, Function>()
-    val classes    = mutableMapOf<String, Class>()
+    val classes    = mutableMapOf<String, Klass>()
     val globalInit = Function("globalInit")
 
     fun newFunction(function: Function) {
