@@ -2,26 +2,30 @@ package org.jetbrains.kotlin.backend.common.ir.cfg
 
 //-----------------------------------------------------------------------------//
 
-enum class ValueType {
-    double,
-    float,
-    long,
-    int,
-    short,
-    byte,
-    char,
-    boolean,
-    string,
-    pointer
+sealed class Type(size: Int) {
+    object i1 : Type(1)
+    object i8 : Type(1)
+    object i16 : Type(2)
+    object i32 : Type(4)
+    object i64 : Type(8)
+    object f32 : Type(4)
+    object f64 : Type(8)
+    object ptr : Type(8)
+    class classPtr(klass: Class) : Type(8)
+    class funcPtr(function: Function) : Type(8)
+    class operandPtr(operandType: Type) : Type(8)
 }
 
 //-----------------------------------------------------------------------------//
 
-open class Type(val type: ValueType)
+class Class(val name: String) {
+    val superClass: Class? = null
+    val interfaces = mutableListOf<Class>()
+    val methods    = mutableListOf<Function>()
+    val fields     = mutableListOf<Variable>()
 
-//-----------------------------------------------------------------------------//
-
-class RefType(val klass: Class): Type(ValueType.pointer)
+    override fun toString() = name
+}
 
 //-----------------------------------------------------------------------------//
 
@@ -70,17 +74,6 @@ class Function(val name: String) {
     val defaultLanding = Block("${name}_landingpad")
     var maxBlockId    = 0
     var maxVariableId = 0
-
-    override fun toString() = name
-}
-
-//-----------------------------------------------------------------------------//
-
-class Class(val name: String) {
-    val superClass: Class? = null
-    val interfaces = mutableListOf<Class>()
-    val methods    = mutableListOf<Function>()
-    val fields     = mutableListOf<Variable>()
 
     override fun toString() = name
 }
