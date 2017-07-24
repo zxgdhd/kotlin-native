@@ -16,14 +16,22 @@ import org.jetbrains.kotlin.ir.visitors.acceptVoid
 import org.jetbrains.kotlin.resolve.descriptorUtil.fqNameSafe
 
 data class CfgDeclarations(
-        private val functions: Map<FunctionDescriptor, Function>,
-        private val classes: Map<ClassDescriptor, Class>
+        private val functions: MutableMap<FunctionDescriptor, Function>,
+        private val classes: MutableMap<ClassDescriptor, Class>
 ) {
-    fun getFunc(descriptor: FunctionDescriptor) : Function
-            = functions[descriptor] ?: error("Undeclared function")
+    fun getFunc(descriptor: FunctionDescriptor) : Function {
+        if (functions[descriptor] == null) {
+            functions[descriptor] = Function(descriptor.name.asString())
+        }
+        return functions[descriptor]!!
+    }
 
-    fun getClass(descriptor: ClassDescriptor) : Class
-            = classes[descriptor] ?: error("Undeclared class")
+    fun getClass(descriptor: ClassDescriptor) : Class {
+        if (classes[descriptor] == null) {
+            classes[descriptor] = Class(descriptor.name.asString())
+        }
+        return classes[descriptor]!!
+    }
 }
 
 internal fun createCfgDeclarations(context: Context): CfgDeclarations

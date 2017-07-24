@@ -43,10 +43,8 @@ fun Variable.asString() = "%$name:$type"
 //-----------------------------------------------------------------------------//
 
 fun Constant.asString() =
-    when(type.type) {
-        ValueType.string  -> "\"$value\""
-        ValueType.boolean -> if (value == 1) "true" else "false"
-        ValueType.char    -> "\'$value\'"
+    when(type) {
+        Type.i1 -> if (value == 1) "true" else "false"
         else         -> value.toString()
     }
 
