@@ -72,8 +72,8 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
             currentLandingBlock = currentFunction.defaultLanding
             when (it) {
                 is IrExpressionBody -> selectStatement(it.expression)
-                is IrBlockBody -> it.statements.forEach {
-                    selectStatement(it)
+                is IrBlockBody -> it.statements.forEach { statement ->
+                    selectStatement(statement)
                 }
                 else -> throw TODO("unsupported function body type: $it")
             }
@@ -205,10 +205,6 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
 
     //-------------------------------------------------------------------------//
 
-    /**
-     * pass [catchBlock] if call is inside try-catch
-     * function's default landing will be used otherwise
-     */
     private fun selectCall(irCall: IrCall): Operand {
         if (irCall.descriptor.isOperator) return selectOperator(irCall)
         // TODO: add global function scope
@@ -245,15 +241,15 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
 
     private fun selectConst(const: IrConst<*>): Constant = when(const.kind) {
         IrConstKind.Null    -> CfgNull
-        IrConstKind.Boolean -> Constant(Type.i1, const.value as Boolean)
-        IrConstKind.Char    -> Constant(Type.i16,    const.value as Char)
+        IrConstKind.Boolean -> Constant(Type.i1,    const.value as Boolean)
+        IrConstKind.Char    -> Constant(Type.i16,   const.value as Char)
         IrConstKind.Byte    -> Constant(Type.i8,    const.value as Byte)
         IrConstKind.Short   -> Constant(Type.i16,   const.value as Short)
-        IrConstKind.Int     -> Constant(Type.i32,     const.value as Int)
-        IrConstKind.Long    -> Constant(Type.i64,    const.value as Long)
+        IrConstKind.Int     -> Constant(Type.i32,   const.value as Int)
+        IrConstKind.Long    -> Constant(Type.i64,   const.value as Long)
         IrConstKind.Float   -> Constant(Type.f32,   const.value as Float)
-        IrConstKind.String  -> Constant(Type.ptr, const.value as String) // TODO: Add pointer to String class
-        IrConstKind.Double  -> Constant(Type.f64,  const.value as Double)
+        IrConstKind.String  -> Constant(Type.ptr,   const.value as String) // TODO: Add pointer to String class
+        IrConstKind.Double  -> Constant(Type.f64,   const.value as Double)
     }
 
     //-------------------------------------------------------------------------//
