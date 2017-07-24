@@ -2,7 +2,7 @@ package org.jetbrains.kotlin.backend.common.ir.cfg
 
 //-----------------------------------------------------------------------------//
 
-enum class Type {
+enum class ValueType {
     double,
     float,
     long,
@@ -14,6 +14,14 @@ enum class Type {
     string,
     pointer
 }
+
+//-----------------------------------------------------------------------------//
+
+open class Type(val type: ValueType)
+
+//-----------------------------------------------------------------------------//
+
+class RefType(val klass: Class): Type(ValueType.pointer)
 
 //-----------------------------------------------------------------------------//
 
@@ -31,12 +39,6 @@ class Constant(type: Type, val value: Any?): Operand(type) {
 //-----------------------------------------------------------------------------//
 
 open class Variable(type: Type, val name: String): Operand(type) {
-    override fun toString() = asString()
-}
-
-//-----------------------------------------------------------------------------//
-
-class Reference(val klass: Class?, name: String): Variable(Type.pointer, name) {
     override fun toString() = asString()
 }
 

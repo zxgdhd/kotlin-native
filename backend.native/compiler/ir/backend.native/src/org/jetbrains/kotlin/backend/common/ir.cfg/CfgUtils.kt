@@ -1,9 +1,18 @@
 package org.jetbrains.kotlin.backend.common.ir.cfg
 
 //-----------------------------------------------------------------------------//
+val CfgDouble  = Type(ValueType.double) 
+val CfgFloat   = Type(ValueType.float) 
+val CfgLong    = Type(ValueType.long) 
+val CfgInt     = Type(ValueType.int)
+val CfgShort   = Type(ValueType.short) 
+val CfgByte    = Type(ValueType.byte) 
+val CfgChar    = Type(ValueType.char) 
+val CfgBoolean = Type(ValueType.boolean) 
+val CfgPointer = Type(ValueType.pointer)
 
-val CfgNull = Constant(Type.pointer, 0)
-val CfgUnit = Constant(Type.pointer, 0)
+val CfgNull = Constant(CfgPointer, 0)
+val CfgUnit = Constant(CfgPointer, 0)
 
 //--- Operand -----------------------------------------------------------------//
 
@@ -109,7 +118,7 @@ fun Block.ret(use: Operand) {
 
 fun Block.br(target: Block) {
     val instruction   = instruction(Opcode.br)
-    val targetOperand = Constant(Type.pointer, target)
+    val targetOperand = Constant(CfgPointer, target)
     instruction.addUse(targetOperand)
 
     addSuccessor(target)
@@ -119,8 +128,8 @@ fun Block.br(target: Block) {
 
 fun Block.condBr(condition: Operand, targetTrue: Block, targetFalse: Block) {
     val instruction = instruction(Opcode.condbr)
-    val targetTrueOperand  = Constant(Type.pointer, targetTrue)
-    val targetFalseOperand = Constant(Type.pointer, targetFalse)
+    val targetTrueOperand  = Constant(CfgPointer, targetTrue)
+    val targetFalseOperand = Constant(CfgPointer, targetFalse)
     instruction.addUse(condition)
     instruction.addUse(targetTrueOperand)
     instruction.addUse(targetFalseOperand)
@@ -139,8 +148,8 @@ fun Block.isLastInstructionTerminal(): Boolean
 fun Block.invoke(targetSuccess: Block, targetFail: Block, def: Variable, vararg uses: Operand) {
     with(instruction(Opcode.invoke)) {
         addUse(uses[0]) // function name
-        addUse(Constant(Type.pointer, targetSuccess))
-        addUse(Constant(Type.pointer, targetFail))
+        addUse(Constant(CfgPointer, targetSuccess))
+        addUse(Constant(CfgPointer, targetFail))
         uses.drop(1).forEach(this::addUse)
         addDef(def)
     }
