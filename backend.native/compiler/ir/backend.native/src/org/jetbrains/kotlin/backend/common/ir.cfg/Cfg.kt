@@ -75,7 +75,6 @@ class Function(val name: String) {
     val reifiedTypes = mutableListOf<Type>()
     val parameters   = mutableListOf<Variable>()
     var enter = Block("enter")
-    val defaultLanding = Block("${name}_landingpad")
     var maxBlockId    = 0
     var maxVariableId = 0
 

@@ -44,28 +44,8 @@ fun Block.instruction(opcode: Opcode): Instruction {
 //-----------------------------------------------------------------------------//
 
 fun Block.instruction(opcode: Opcode, vararg uses: Operand): Instruction {
-
     val instruction = instruction(opcode)
     uses.forEach(instruction::addUse)
-    return instruction
-}
-
-//-----------------------------------------------------------------------------//
-
-fun Block.instruction(opcode: Opcode, use: Operand): Instruction {
-
-    val instruction = instruction(opcode)
-    instruction.addUse(use)
-    return instruction
-}
-
-//-----------------------------------------------------------------------------//
-
-fun Block.instruction(opcode: Opcode, def: Variable, use: Operand): Instruction {
-
-    val instruction = instruction(opcode)
-    instruction.addDef(def)
-    instruction.addUse(use)
     return instruction
 }
 

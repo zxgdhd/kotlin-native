@@ -39,7 +39,7 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
 
     private var currentBlock            = Block("Entry")
     private var currentFunction         = Function("Outer")
-    private var currentLandingBlock     = currentFunction.defaultLanding
+    private var currentLandingBlock: Block?     = null
     private var currentClass: Klass?    = null
 
     private val variableMap = mutableMapOf<ValueDescriptor, Operand>()
@@ -107,7 +107,7 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
 
         irFunction.body?.let {
             currentBlock = currentFunction.enter
-            currentLandingBlock = currentFunction.defaultLanding
+            currentLandingBlock = null
             when (it) {
                 is IrExpressionBody -> selectStatement(it.expression)
                 is IrBlockBody -> it.statements.forEach { statement ->
@@ -234,15 +234,22 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
         val funcName = irCall.descriptor.toCfgName()
         val funcPtr  = Type.funcPtr(Function(funcName))
         val callee   = Variable(funcPtr, funcName)
-        val uses     = listOf(callee) + irCall.getArguments().map { (_, expr) -> selectStatement(expr) }
+        val args = irCall.getArguments().map { (_, expr) -> selectStatement(expr) }
+        val uses     = (listOf(callee) + args) as MutableList<Operand>
 
-        if (irCall.type.isUnit()) {
-            currentBlock.instruction(Opcode.call, *uses.toTypedArray())
-            return CfgUnit
+        val opcode = if (currentLandingBlock != null) {
+            // we're inside try block
+            currentBlock.addSuccessor(currentLandingBlock!!)
+            uses += Constant(Type.operandPtr(Type.long), currentLandingBlock)
+            Opcode.invoke
         } else {
-            val def = newVariable(irCall.type.toCfgType())
-            currentBlock.instruction(Opcode.call, def, *uses.toTypedArray())
-            return def
+            Opcode.call
+        }
+
+        return if (irCall.type.isUnit()) {
+            inst(opcode, uses=*uses.toTypedArray())
+        } else {
+            inst(opcode, irCall.type.toCfgType(), *uses.toTypedArray())
         }
     }
 
@@ -285,7 +292,7 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
         IrConstKind.Int     -> Constant(Type.int,     const.value as Int)
         IrConstKind.Long    -> Constant(Type.long,    const.value as Long)
         IrConstKind.Float   -> Constant(Type.float,   const.value as Float)
-        IrConstKind.String  -> Constant(Type.ptr,     const.value as String) // TODO: Add pointer to String class
+        IrConstKind.String  -> Constant(Type.ptr,     const.value as String)
         IrConstKind.Double  -> Constant(Type.double,  const.value as Double)
         IrConstKind.Char    -> Constant(Type.char,    const.value as Char)
         IrConstKind.String  -> Constant(Type.string,  const.value as String)
@@ -294,9 +301,9 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
     //-------------------------------------------------------------------------//
 
     private fun selectWhileLoop(irWhileLoop: IrWhileLoop): Operand {
-        val loopCheck = currentFunction.newBlock("loop_check")
-        val loopBody = currentFunction.newBlock("loop_body")
-        val loopExit = currentFunction.newBlock("loop_exit")
+        val loopCheck = newBlock("loop_check")
+        val loopBody = newBlock("loop_body")
+        val loopExit = newBlock("loop_exit")
 
         loopStack.push(LoopLabels(irWhileLoop, loopCheck, loopExit))
 
@@ -351,10 +358,10 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
         } else {
             newVariable(expression.type.toCfgType())
         }
-        val exitBlock = currentFunction.newBlock()
+        val exitBlock = newBlock()
 
         expression.branches.forEach {
-            val nextBlock = if (it == expression.branches.last()) exitBlock else currentFunction.newBlock()
+            val nextBlock = if (it == expression.branches.last()) exitBlock else newBlock()
             selectWhenClause(it, nextBlock, exitBlock, resultVar)
         }
 
@@ -368,7 +375,7 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
         currentBlock = if (isUnconditional(irBranch)) {
             currentBlock
         } else {
-            currentFunction.newBlock().also {
+            newBlock().also {
                 currentBlock.condBr(selectStatement(irBranch.condition), it, nextBlock)
             }
         }
@@ -434,7 +441,7 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
     private fun selectCatches(irCatches: List<IrCatch>, tryExit: Block): Block {
         val prevBlock = currentBlock
 
-        val header = currentFunction.newBlock("catch_header")
+        val header = newBlock("catch_header")
         val exception = Variable(Type.ptr, "exception")
         val isInstanceFunc = Variable(Type.ptr, "IsInstance")
 
@@ -442,21 +449,19 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
         header.instruction(Opcode.landingpad, exception)
         currentBlock = header
         irCatches.forEach {
-            val catchBody = currentFunction.newBlock()
-            val nextCatch = if (it == irCatches.last()) {
-                currentFunction.defaultLanding
+            if (it == irCatches.last()) {
+                selectStatement(it.result)
+                currentBlock.br(tryExit)
             } else {
-                currentFunction.newBlock("check_for_${it.parameter.name.asString()}")
+                val catchBody = newBlock()
+                val isInstance = inst(Opcode.call, Type.boolean, isInstanceFunc, exception)
+                val nextCatch = newBlock("check_for_${it.parameter.name.asString()}")
+                currentBlock.condBr(isInstance, catchBody, nextCatch)
+                currentBlock = catchBody
+                selectStatement(it.result)
+                currentBlock.br(tryExit)
+                currentBlock = nextCatch
             }
-
-            val isInstance = Variable(Type.boolean, "is_instance")
-            currentBlock.instruction(Opcode.call, isInstance, isInstanceFunc, exception)
-            currentBlock.condBr(isInstance, catchBody, nextCatch)
-
-            currentBlock = catchBody
-            selectStatement(it.result)
-            currentBlock.br(tryExit)
-            currentBlock = nextCatch
         }
         currentBlock = prevBlock
         return header
@@ -474,11 +479,11 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
     //-------------------------------------------------------------------------//
 
     private fun selectTry(irTry: IrTry): Operand {
-        val tryExit = currentFunction.newBlock("try_exit")
+        val tryExit = newBlock("try_exit")
         currentLandingBlock = selectCatches(irTry.catches, tryExit)
         val operand = selectStatement(irTry.tryResult)
         currentBlock.br(tryExit)
-        currentLandingBlock = currentFunction.defaultLanding
+        currentLandingBlock = null
         currentBlock = tryExit
         return operand
     }
@@ -497,6 +502,10 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
     //-------------------------------------------------------------------------//
 
     private fun newVariable(type: Type) = Variable(type, currentFunction.genVariableName())
+
+    //-------------------------------------------------------------------------//
+
+    private fun newBlock(name: String = "block") = currentFunction.newBlock(name)
 
     //-------------------------------------------------------------------------//
 
@@ -536,26 +545,15 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
 
     //-------------------------------------------------------------------------//
 
-    private fun inst(opcode: Opcode, defType: Type, use: Operand): Operand {
-        val def = newVariable(defType)
-        currentBlock.instruction(opcode, def, use)
-        return def
-    }
-
-    //-------------------------------------------------------------------------//
-
-    private fun inst(opcode: Opcode, defType: Type, use1: Operand, use2: Operand): Operand {
-        val def = newVariable(defType)
-        currentBlock.instruction(opcode, def, use1, use2)
-        return def
-    }
-
-    //-------------------------------------------------------------------------//
-
-    private fun inst(opcode: Opcode, defType: Type, vararg uses: Operand): Operand {
-        val def = newVariable(defType)
-        currentBlock.instruction(opcode, def, *uses)
-        return def
+    private fun inst(opcode: Opcode, defType: Type? = null, vararg uses: Operand): Operand {
+        if (defType == null) {
+            currentBlock.instruction(opcode, *uses)
+            return CfgUnit
+        } else {
+            val def = newVariable(defType)
+            currentBlock.instruction(opcode, def, *uses)
+            return def
+        }
     }
 
     //-------------------------------------------------------------------------//
