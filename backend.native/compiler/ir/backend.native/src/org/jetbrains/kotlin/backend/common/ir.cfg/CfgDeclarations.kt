@@ -5,6 +5,7 @@ import org.jetbrains.kotlin.backend.konan.descriptors.isIntrinsic
 import org.jetbrains.kotlin.backend.konan.llvm.ContextUtils
 import org.jetbrains.kotlin.descriptors.ClassDescriptor
 import org.jetbrains.kotlin.descriptors.FunctionDescriptor
+import org.jetbrains.kotlin.descriptors.MemberDescriptor
 import org.jetbrains.kotlin.ir.IrElement
 import org.jetbrains.kotlin.ir.declarations.IrClass
 import org.jetbrains.kotlin.ir.declarations.IrField
@@ -50,13 +51,21 @@ private class CfgDeclarationsGenerator(override val context: Context) :
 
     private fun createClassDeclaration(declaration: IrClass): Klass {
         val descriptor = declaration.descriptor
-        val klass = Klass(descriptor.fqNameSafe.toString())
+        val klass = Klass(descriptor.toCfgName())
         return klass
     }
 
     private fun createFunctionDeclaration(declaration: IrFunction): Function {
-        val name = declaration.descriptor.fqNameSafe.asString()
+        val name = declaration.descriptor.toCfgName()
         return Function(name)
     }
 
 }
+
+//-------------------------------------------------------------------------//
+
+fun MemberDescriptor.toCfgName() = fqNameSafe.asString()
+    .replace("$", "")
+    .replace("<", "")
+    .replace(">", "")
+

@@ -7,7 +7,7 @@ import java.io.File
 fun dotFunction(enter: Block, name: String="graph") {
 
     createDotDir()
-    val dotFile = File("dot_out/$name.dot")
+    val dotFile = File("out_dot/$name.dot")
     val blocks = search(enter)
     dotFile.printWriter().use { out ->
         out.println("digraph {")
@@ -29,7 +29,7 @@ fun dotFunction(enter: Block, name: String="graph") {
 //-----------------------------------------------------------------------------//
 
 fun createDotDir() {
-    val dotDir = File("dot_out")
+    val dotDir = File("out_dot")
     if (dotDir.exists()) return
     try {
         dotDir.mkdir()

@@ -20,7 +20,7 @@ fun Type.asString(): String = when (this) {
 
 //-----------------------------------------------------------------------------//
 
-fun Variable.asString() = "%$name:$type"
+fun Variable.asString() = "$name:$type"
 
 //-----------------------------------------------------------------------------//
 
@@ -70,8 +70,8 @@ fun Instruction.callAsString(): String {
 //-----------------------------------------------------------------------------//
 
 fun Block.log() {
-    println("    $name:")
-    instructions.forEach { println("        $it") }
+    println("  $name:")
+    instructions.forEach { println("    $it") }
 }
 
 //-----------------------------------------------------------------------------//

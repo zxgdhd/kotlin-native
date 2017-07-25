@@ -231,7 +231,7 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
     //-------------------------------------------------------------------------//
 
     private fun generateCall(irCall: IrCall): Operand {
-        val funcName = irCall.descriptor.fqNameSafe.asString()
+        val funcName = irCall.descriptor.toCfgName()
         val funcPtr  = Type.funcPtr(Function(funcName))
         val callee   = Variable(funcPtr, funcName)
         val uses     = listOf(callee) + irCall.getArguments().map { (_, expr) -> selectStatement(expr) }

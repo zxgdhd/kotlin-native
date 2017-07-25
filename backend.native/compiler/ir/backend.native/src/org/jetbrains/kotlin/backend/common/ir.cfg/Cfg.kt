@@ -46,7 +46,7 @@ class Constant(type: Type, val value: Any?): Operand(type) {
 
 //-----------------------------------------------------------------------------//
 
-open class Variable(type: Type, val name: String): Operand(type) {
+class Variable(type: Type, val name: String): Operand(type) {
     override fun toString() = asString()
 }
 
