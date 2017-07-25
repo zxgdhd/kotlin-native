@@ -207,15 +207,15 @@ fun IrConstructor.callsSuper(): Boolean {
         }
 
         override fun visitDelegatingConstructorCall(expression: IrDelegatingConstructorCall) {
-            assert(++numberOfCalls == 1, { "More than one delegating constructor selectCall: $descriptor" })
+            assert(++numberOfCalls == 1, { "More than one delegating constructor call: $descriptor" })
             if (expression.descriptor.constructedClass == superClass)
                 callsSuper = true
             else if (expression.descriptor.constructedClass != constructedClass)
-                throw AssertionError("Expected either selectCall to another constructor of the class being constructed or" +
-                        " selectCall to super class constructor. But was: ${expression.descriptor.constructedClass}")
+                throw AssertionError("Expected either call to another constructor of the class being constructed or" +
+                        " call to super class constructor. But was: ${expression.descriptor.constructedClass}")
         }
     })
-    assert(numberOfCalls == 1, { "Expected exactly one delegating constructor selectCall but none encountered: $descriptor" })
+    assert(numberOfCalls == 1, { "Expected exactly one delegating constructor call but none encountered: $descriptor" })
     return callsSuper
 }
 

@@ -150,12 +150,12 @@ internal fun structType(types: List<LLVMTypeRef>): LLVMTypeRef =
     LLVMStructType(types.toCValues(), types.size, 0)!!
 
 internal fun ContextUtils.numParameters(functionType: LLVMTypeRef) : Int {
-    // Note that type is usually selectFunction pointer, so we have to dereference it.
+    // Note that type is usually function pointer, so we have to dereference it.
     return LLVMCountParamTypes(LLVMGetElementType(functionType))!!
 }
 
 internal fun ContextUtils.isObjectReturn(functionType: LLVMTypeRef) : Boolean {
-    // Note that type is usually selectFunction pointer, so we have to dereference it.
+    // Note that type is usually function pointer, so we have to dereference it.
     val returnType = LLVMGetReturnType(LLVMGetElementType(functionType))!!
     return isObjectType(returnType)
 }

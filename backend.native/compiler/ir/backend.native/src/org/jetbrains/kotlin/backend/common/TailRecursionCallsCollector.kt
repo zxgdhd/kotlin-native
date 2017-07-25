@@ -31,8 +31,8 @@ import org.jetbrains.kotlin.types.typeUtil.isUnit
  * in `ControlFlowInformationProvider.markAndCheckRecursiveTailCalls()`.
  *
  * This analysis is not very precise and can miss some calls.
- * It is also not guaranteed that each returned selectCall is detected as tail recursion by the frontend.
- * However any returned selectCall can be correctly optimized as tail recursion.
+ * It is also not guaranteed that each returned call is detected as tail recursion by the frontend.
+ * However any returned call can be correctly optimized as tail recursion.
  */
 fun collectTailRecursionCalls(irFunction: IrFunction): Set<IrCall> {
     if (!irFunction.descriptor.isTailrec) {
@@ -148,8 +148,8 @@ fun collectTailRecursionCalls(irFunction: IrFunction): Set<IrCall> {
  */
 private enum class ElementKind {
     /**
-     * This element is the last statement to be executed before the return from the selectFunction.
-     * If the return type is not `Unit`, the result of this statement defines the result of the entire selectFunction.
+     * This element is the last statement to be executed before the return from the function.
+     * If the return type is not `Unit`, the result of this statement defines the result of the entire function.
      */
     TAIL_STATEMENT,
 

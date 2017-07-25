@@ -71,7 +71,7 @@ class VarargInjectionLowering internal constructor(val context: CommonBackendCon
             val transformer = this
 
             private fun replaceEmptyParameterWithEmptyArray(expression: IrMemberAccessExpression) {
-                log("selectCall of: ${expression.descriptor}")
+                log("call of: ${expression.descriptor}")
                 context.createIrBuilder(owner, expression.startOffset, expression.endOffset).apply {
                     expression.descriptor.valueParameters.forEach {
                         log("varargElementType: ${it.varargElementType} expr: ${ir2string(expression.getValueArgument(it))}")

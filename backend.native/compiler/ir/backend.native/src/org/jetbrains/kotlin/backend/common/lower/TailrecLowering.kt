@@ -57,7 +57,7 @@ private fun lowerTailRecursionCalls(context: BackendContext, irFunction: IrFunct
         val parameterToVariable = parameters.associate {
             it to irTemporaryVar(irGet(it), nameHint = it.suggestVariableName()).symbol
         }
-        // (these variables are to be updated on any tail selectCall).
+        // (these variables are to be updated on any tail call).
 
         +irWhile().apply {
             val loop = this

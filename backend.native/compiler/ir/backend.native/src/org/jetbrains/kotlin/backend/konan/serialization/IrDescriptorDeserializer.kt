@@ -153,7 +153,7 @@ internal class IrDescriptorDeserializer(val context: Context,
     //
 
     // We don't deserialize value, type and receiver parameters, rather
-    // just obtain them from their selectFunction descriptor and match them to the indices
+    // just obtain them from their function descriptor and match them to the indices
     // stored in the IR serialization.
     fun registerParameterDescriptors (
         proto: KonanIr.KotlinDescriptor, 
@@ -408,7 +408,7 @@ internal class IrDescriptorDeserializer(val context: Context,
                 // class descriptors here?
                 //substituteClass(proto, originalDescriptor)
                 originalDescriptor
-            else -> TODO("unexpected type of public selectFunction")
+            else -> TODO("unexpected type of public function")
         }
     }
 
