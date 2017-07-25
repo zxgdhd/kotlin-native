@@ -3,7 +3,6 @@ package org.jetbrains.kotlin.backend.common.ir.cfg
 import org.jetbrains.kotlin.backend.konan.Context
 import org.jetbrains.kotlin.backend.konan.descriptors.isIntrinsic
 import org.jetbrains.kotlin.backend.konan.llvm.ContextUtils
-import org.jetbrains.kotlin.backend.konan.llvm.getFields
 import org.jetbrains.kotlin.descriptors.ClassDescriptor
 import org.jetbrains.kotlin.descriptors.FunctionDescriptor
 import org.jetbrains.kotlin.ir.IrElement
@@ -16,23 +15,9 @@ import org.jetbrains.kotlin.ir.visitors.acceptVoid
 import org.jetbrains.kotlin.resolve.descriptorUtil.fqNameSafe
 
 data class CfgDeclarations(
-        private val functions: MutableMap<FunctionDescriptor, Function>,
-        private val classes: MutableMap<ClassDescriptor, Klass>
-) {
-    fun getFunc(descriptor: FunctionDescriptor) : Function {
-        if (functions[descriptor] == null) {
-            functions[descriptor] = Function(descriptor.fqNameSafe.asString())
-        }
-        return functions[descriptor]!!
-    }
-
-    fun getClass(descriptor: ClassDescriptor) : Klass {
-        if (classes[descriptor] == null) {
-            classes[descriptor] = Klass(descriptor.fqNameSafe.asString())
-        }
-        return classes[descriptor]!!
-    }
-}
+        val functions: MutableMap<FunctionDescriptor, Function>,
+        val classes: MutableMap<ClassDescriptor, Klass>
+)
 
 internal fun createCfgDeclarations(context: Context): CfgDeclarations
         = with(CfgDeclarationsGenerator(context)) {
@@ -65,19 +50,13 @@ private class CfgDeclarationsGenerator(override val context: Context) :
 
     private fun createClassDeclaration(declaration: IrClass): Klass {
         val descriptor = declaration.descriptor
-
         val klass = Klass(descriptor.fqNameSafe.toString())
-
-        getFields(descriptor).forEach {
-           //klass.fields.add()
-        }
-
-
         return klass
     }
 
     private fun createFunctionDeclaration(declaration: IrFunction): Function {
-        return Function(declaration.descriptor.fqNameSafe.toString())
+        val name = declaration.descriptor.fqNameSafe.asString()
+        return Function(name)
     }
 
 }

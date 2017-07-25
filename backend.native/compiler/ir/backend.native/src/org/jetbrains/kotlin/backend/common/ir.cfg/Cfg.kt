@@ -92,6 +92,10 @@ class Ir {
     fun newFunction(function: Function) {
         functions[function.name] = function
     }
+
+    fun newClass(clazz: Klass) {
+        classes[clazz.name] = clazz
+    }
 }
 
 //-----------------------------------------------------------------------------//

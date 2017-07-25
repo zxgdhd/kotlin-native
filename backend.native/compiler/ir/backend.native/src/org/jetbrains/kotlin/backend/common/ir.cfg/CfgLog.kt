@@ -82,7 +82,6 @@ fun Function.log() {
     val blocks = search(enter)                                                                      // Get basic blocks of selectFunction body.
     blocks.reversed().forEach(Block::log)                                                           // Print the blocks.
     println("}")
-    enter.let { dotFunction(it, name) }                                                             // Print dot file.
 }
 
 //-----------------------------------------------------------------------------//
@@ -97,8 +96,9 @@ fun Klass.log() {
 //-----------------------------------------------------------------------------//
 
 fun Ir.log() {
+    classes.forEach { it.value.log() }
     functions.forEach { it.value.log() }
-    classes.forEach   { it.value.log() }
+    functions.forEach { (_, f) -> f.enter.let { dotFunction(it, f.name)} }
 }
 
 //-----------------------------------------------------------------------------//

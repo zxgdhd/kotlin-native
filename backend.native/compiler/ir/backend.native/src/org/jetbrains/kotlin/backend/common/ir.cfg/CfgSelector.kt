@@ -8,10 +8,11 @@ import org.jetbrains.kotlin.backend.konan.Context
 import org.jetbrains.kotlin.backend.konan.ValueType
 import org.jetbrains.kotlin.backend.konan.correspondingValueType
 import org.jetbrains.kotlin.backend.konan.isValueType
-import org.jetbrains.kotlin.descriptors.CallableDescriptor
-import org.jetbrains.kotlin.descriptors.ValueDescriptor
+import org.jetbrains.kotlin.descriptors.*
 import org.jetbrains.kotlin.ir.IrElement
 import org.jetbrains.kotlin.ir.IrStatement
+import org.jetbrains.kotlin.ir.declarations.IrClass
+import org.jetbrains.kotlin.ir.declarations.IrField
 import org.jetbrains.kotlin.ir.declarations.IrFunction
 import org.jetbrains.kotlin.ir.declarations.IrVariable
 import org.jetbrains.kotlin.ir.expressions.*
@@ -20,6 +21,7 @@ import org.jetbrains.kotlin.ir.symbols.IrVariableSymbol
 import org.jetbrains.kotlin.ir.util.getArguments
 import org.jetbrains.kotlin.ir.util.type
 import org.jetbrains.kotlin.ir.visitors.IrElementVisitorVoid
+import org.jetbrains.kotlin.ir.visitors.acceptVoid
 import org.jetbrains.kotlin.resolve.descriptorUtil.fqNameSafe
 import org.jetbrains.kotlin.types.KotlinType
 import org.jetbrains.kotlin.types.TypeUtils
@@ -32,10 +34,13 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
     private val ir = Ir()
 
     private val declarations = createCfgDeclarations(context)
+    private val classDependencies = mutableListOf<Klass>()
+    private val funcDependencies = mutableListOf<Function>()
 
-    private var currentBlock        = Block("Entry")
-    private var currentFunction     = Function("Outer")
-    private var currentLandingBlock = currentFunction.defaultLanding
+    private var currentBlock            = Block("Entry")
+    private var currentFunction         = Function("Outer")
+    private var currentLandingBlock     = currentFunction.defaultLanding
+    private var currentClass: Klass?    = null
 
     private val variableMap = mutableMapOf<ValueDescriptor, Operand>()
     private val loopStack   = mutableListOf<LoopLabels>()
@@ -51,15 +56,46 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
 
     //-------------------------------------------------------------------------//
 
+
+    override fun visitClass(declaration: IrClass) {
+        val klass = declarations.classes[declaration.descriptor]
+        if (klass != null) {
+            currentClass = klass
+            ir.newClass(klass)
+            declaration.declarations.forEach {
+                it.acceptVoid(this)
+            }
+            currentClass = null
+        }
+    }
+
+    //-------------------------------------------------------------------------//
+
+    override fun visitField(declaration: IrField) {
+        currentClass?.let {
+            val type = declaration.symbol.descriptor.type.toCfgType()
+            val name = declaration.symbol.descriptor.fqNameSafe.asString()
+            declaration.initializer?.expression?.let {
+                selectStatement(it)
+            }
+            it.fields += Variable(type, name)
+        }
+    }
+
+    //-------------------------------------------------------------------------//
+
     override fun visitFunction(declaration: IrFunction) {
         selectFunction(declaration)
-        super.visitFunction(declaration)
     }
 
     //-------------------------------------------------------------------------//
 
     private fun selectFunction(irFunction: IrFunction) {
-        currentFunction = declarations.getFunc(irFunction.descriptor)
+        currentFunction = declarations.functions[irFunction.descriptor]
+                ?: error("selecting undeclared function")
+        if (currentClass != null) {
+            currentClass!!.methods += currentFunction
+        }
         ir.newFunction(currentFunction)
 
         irFunction.valueParameters
@@ -252,6 +288,7 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
         IrConstKind.Int     -> Constant(Type.int,     const.value as Int)
         IrConstKind.Long    -> Constant(Type.long,    const.value as Long)
         IrConstKind.Float   -> Constant(Type.float,   const.value as Float)
+        IrConstKind.String  -> Constant(Type.ptr,     const.value as String) // TODO: Add pointer to String class
         IrConstKind.Double  -> Constant(Type.double,  const.value as Double)
         IrConstKind.Char    -> Constant(Type.char,    const.value as Char)
         IrConstKind.String  -> Constant(Type.string,  const.value as String)
@@ -392,7 +429,6 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
             throw IllegalStateException("IrVararg neither was lowered nor can be statically evaluated")
         }
         // TODO: replace with a correct array type
-//        return Constant(KtType(irVararg.type), elements)
         return Constant(Type.ptr, elements)
     }
 
@@ -440,9 +476,7 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
 
     //-------------------------------------------------------------------------//
 
-    // TODO: add return value
     private fun selectTry(irTry: IrTry): Operand {
-        // TODO: what if catches is empty
         val tryExit = currentFunction.newBlock("try_exit")
         currentLandingBlock = selectCatches(irTry.catches, tryExit)
         val operand = selectStatement(irTry.tryResult)
@@ -471,9 +505,7 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
 
     fun KotlinType.toCfgType(): Type {
         if (!isValueType()) {
-            return TypeUtils.getClassDescriptor(this)?.let {
-                Type.klassPtr(declarations.getClass(it))
-            } ?: Type.ptr
+            return TypeUtils.getClassDescriptor(this)?.classPtr() ?: Type.ptr
         }
 
         return when (correspondingValueType) {
@@ -490,6 +522,17 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
             ValueType.C_POINTER      -> Type.ptr
             null                     -> throw TODO("Null ValueType")
         }
+    }
+
+    fun ClassDescriptor.classPtr(): Type.klassPtr {
+        val klass = if (declarations.classes.contains(this)) {
+            declarations.classes[this]!!
+        } else {
+            val clazz = Klass(this.name.asString())
+            classDependencies += clazz
+            clazz
+        }
+        return Type.klassPtr(klass)
     }
 
     //-------------------------------------------------------------------------//
