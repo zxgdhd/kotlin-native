@@ -20,8 +20,10 @@ import org.jetbrains.kotlin.ir.symbols.IrVariableSymbol
 import org.jetbrains.kotlin.ir.util.getArguments
 import org.jetbrains.kotlin.ir.util.type
 import org.jetbrains.kotlin.ir.visitors.IrElementVisitorVoid
+import org.jetbrains.kotlin.resolve.descriptorUtil.fqNameSafe
 import org.jetbrains.kotlin.types.KotlinType
 import org.jetbrains.kotlin.types.TypeUtils
+import org.jetbrains.kotlin.types.typeUtil.isUnit
 
 //-----------------------------------------------------------------------------//
 
@@ -185,47 +187,49 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
 
     //-------------------------------------------------------------------------//
 
+    private fun selectCall(irCall: IrCall): Operand {
+        if (irCall.descriptor.isOperator) return selectOperator(irCall)
+        // TODO: add global function scope
+        val funcName = irCall.descriptor.fqNameSafe.asString()
+        val funcPtr  = Type.funcPtr(Function(funcName))
+        val callee   = Variable(funcPtr, funcName)
+        val uses     = listOf(callee) + irCall.getArguments().map { (_, expr) -> selectStatement(expr) }
+
+        if (irCall.type.isUnit()) {
+            currentBlock.instruction(Opcode.call, *uses.toTypedArray())
+            return CfgUnit
+        } else {
+            val def = newVariable(irCall.type.toCfgType())
+            currentBlock.instruction(Opcode.call, def, *uses.toTypedArray())
+            return def
+        }
+    }
+
+    //-------------------------------------------------------------------------//
+
     private fun selectOperator(irCall: IrCall): Operand {
-        val def  = newVariable(irCall.type.toCfgType())
-        val uses = irCall.getArguments().map { selectStatement(it.second) }
         val opcode = when(irCall.descriptor.name.toString()) {
-            "plus"  -> Opcode.add
-            "minus" -> Opcode.sub
-            "times" -> Opcode.mul
-            "div"   -> Opcode.sdiv
-            "srem"  -> Opcode.srem
+            "plus"   -> Opcode.add
+            "minus"  -> Opcode.sub
+            "times"  -> Opcode.mul
+            "div"    -> Opcode.sdiv
+            "srem"   -> Opcode.srem
+            "invoke" -> Opcode.call
             else -> {
                 println("ERROR: unsupported operator type \"${irCall.descriptor.name}\"")
                 Opcode.invalid
             }
         }
 
-        currentBlock.instruction(opcode, def, *uses.toTypedArray())
-        return def
-    }
-
-    //-------------------------------------------------------------------------//
-
-    private fun selectCall(irCall: IrCall): Operand {
-        if (irCall.descriptor.isOperator) return selectOperator(irCall)
-        // TODO: add global function scope
-        val callee = Variable(Type.funcPtr(Function(irCall.descriptor.name.asString())), irCall.descriptor.name.asString())
-        val uses = listOf(callee) + irCall.getArguments().map { (_, expr) -> selectStatement(expr) }
-        val def = newVariable(irCall.type.toCfgType())
-        val successTarget = currentFunction.newBlock("success")
-        currentBlock.invoke(successTarget, currentLandingBlock, def, *uses.toTypedArray())
-        currentBlock = successTarget
-        return def
-
-
-//        if (irCall.type.isUnit()) {
-//            currentBlock.instruction(Opcode.call, *uses.toTypedArray())
-//            return CfgUnit
-//        } else {
-//            val def = Variable(KtType(irCall.type), currentFunction.genVariableName())
-//            currentBlock.instruction(Opcode.call, def, *uses.toTypedArray())
-//            return def
-//        }
+        val uses = irCall.getArguments().map { selectStatement(it.second) }
+        return if (irCall.type.isUnit()) {
+            currentBlock.instruction(opcode, *uses.toTypedArray())
+            CfgUnit
+        } else {
+            val def = newVariable(irCall.type.toCfgType())
+            currentBlock.instruction(opcode, def, *uses.toTypedArray())
+            def
+        }
     }
 
     //-------------------------------------------------------------------------//
@@ -243,14 +247,14 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
     private fun selectConst(const: IrConst<*>): Constant = when(const.kind) {
         IrConstKind.Null    -> CfgNull
         IrConstKind.Boolean -> Constant(Type.boolean, const.value as Boolean)
-        IrConstKind.Char    -> Constant(Type.short,   const.value as Char)
         IrConstKind.Byte    -> Constant(Type.byte,    const.value as Byte)
         IrConstKind.Short   -> Constant(Type.short,   const.value as Short)
         IrConstKind.Int     -> Constant(Type.int,     const.value as Int)
         IrConstKind.Long    -> Constant(Type.long,    const.value as Long)
         IrConstKind.Float   -> Constant(Type.float,   const.value as Float)
-        IrConstKind.String  -> Constant(Type.ptr,     const.value as String) // TODO: Add pointer to String class
         IrConstKind.Double  -> Constant(Type.double,  const.value as Double)
+        IrConstKind.Char    -> Constant(Type.char,    const.value as Char)
+        IrConstKind.String  -> Constant(Type.string,  const.value as String)
     }
 
     //-------------------------------------------------------------------------//
@@ -468,7 +472,7 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
     fun KotlinType.toCfgType(): Type {
         if (!isValueType()) {
             return TypeUtils.getClassDescriptor(this)?.let {
-                Type.classPtr(declarations.getClass(it))
+                Type.klassPtr(declarations.getClass(it))
             } ?: Type.ptr
         }
 
@@ -503,6 +507,18 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
         currentBlock.instruction(opcode, def, use1, use2)
         return def
     }
+
+    //-------------------------------------------------------------------------//
+
+    private fun inst(opcode: Opcode, type: Type, vararg uses: Operand): Operand
+//        if (type == CfgUnit) {
+//            currentBlock.instruction(opcode, *uses)
+//        } else {
+        {
+            val def = newVariable(type)
+            currentBlock.instruction(opcode, def, *uses)
+            return def
+        }
 
     //-------------------------------------------------------------------------//
 

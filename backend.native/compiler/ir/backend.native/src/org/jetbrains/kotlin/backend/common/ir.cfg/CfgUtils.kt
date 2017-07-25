@@ -2,8 +2,8 @@ package org.jetbrains.kotlin.backend.common.ir.cfg
 
 //-----------------------------------------------------------------------------//
 
-val CfgNull = Constant(Type.operandPtr(Type.boolean), 0)
-val CfgUnit = Constant(Type.operandPtr(Type.boolean), 0)
+val CfgNull   = Constant(Type.operandPtr(Type.boolean), 0)
+val CfgUnit   = Constant(Type.operandPtr(Type.boolean), 0)
 
 //--- Operand -----------------------------------------------------------------//
 
@@ -136,16 +136,10 @@ fun Block.isLastInstructionTerminal(): Boolean
 
 //-----------------------------------------------------------------------------//
 
-fun Block.invoke(targetSuccess: Block, targetFail: Block, def: Variable, vararg uses: Operand) {
-    with(instruction(Opcode.invoke)) {
-        addUse(uses[0]) // function name
-        addUse(Constant(Type.operandPtr(Type.long), targetSuccess))
-        addUse(Constant(Type.operandPtr(Type.long), targetFail))
-        uses.drop(1).forEach(this::addUse)
-        addDef(def)
-    }
-    addSuccessor(targetFail)
-    addSuccessor(targetSuccess)
+fun Block.invoke(def: Variable?, vararg uses: Operand) {
+    val inst = instruction(Opcode.invoke)
+    uses.forEach(inst::addUse)
+    if (def != null) inst.addDef(def)
 }
 
 //--- Function ----------------------------------------------------------------//

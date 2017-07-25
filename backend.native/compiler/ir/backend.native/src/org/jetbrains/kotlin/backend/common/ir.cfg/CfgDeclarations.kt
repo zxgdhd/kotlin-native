@@ -21,14 +21,14 @@ data class CfgDeclarations(
 ) {
     fun getFunc(descriptor: FunctionDescriptor) : Function {
         if (functions[descriptor] == null) {
-            functions[descriptor] = Function(descriptor.name.asString())
+            functions[descriptor] = Function(descriptor.fqNameSafe.asString())
         }
         return functions[descriptor]!!
     }
 
     fun getClass(descriptor: ClassDescriptor) : Klass {
         if (classes[descriptor] == null) {
-            classes[descriptor] = Klass(descriptor.name.asString())
+            classes[descriptor] = Klass(descriptor.fqNameSafe.asString())
         }
         return classes[descriptor]!!
     }
@@ -77,7 +77,7 @@ private class CfgDeclarationsGenerator(override val context: Context) :
     }
 
     private fun createFunctionDeclaration(declaration: IrFunction): Function {
-        return Function(declaration.descriptor.name.toString())
+        return Function(declaration.descriptor.fqNameSafe.toString())
     }
 
 }

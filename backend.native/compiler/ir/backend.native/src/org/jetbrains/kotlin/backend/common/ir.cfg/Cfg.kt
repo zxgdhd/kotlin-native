@@ -2,19 +2,20 @@ package org.jetbrains.kotlin.backend.common.ir.cfg
 
 //-----------------------------------------------------------------------------//
 
-sealed class Type(val size: Int) {
-    object boolean: Type(1)
-    object byte   : Type(1)
-    object short  : Type(2)
-    object int    : Type(4)
-    object long   : Type(8)
-    object float  : Type(4)
-    object double : Type(8)
-    object char   : Type(4)
-    object ptr    : Type(8)
-    class classPtr  (val klass   : Klass) : Type(8)
-    class funcPtr   (val function: Function) : Type(8)
-    class operandPtr(val type    : Type    ) : Type(8)
+sealed class Type() {
+    object boolean: Type()
+    object byte   : Type()
+    object short  : Type()
+    object int    : Type()
+    object long   : Type()
+    object float  : Type()
+    object double : Type()
+    object char   : Type()
+    object string : Type()
+    object ptr    : Type()
+    class klassPtr  (val klass   : Klass   ) : Type()
+    class funcPtr   (val function: Function) : Type()
+    class operandPtr(val type    : Type    ) : Type()
 
     override fun toString() = asString()
 }

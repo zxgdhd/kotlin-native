@@ -11,8 +11,9 @@ fun Type.asString(): String = when (this) {
     Type.float         -> "float"
     Type.double        -> "double"
     Type.char          -> "char"
+    Type.string        -> "string"
     Type.ptr           -> "ptr"
-    is Type.classPtr   -> klass.name
+    is Type.klassPtr   -> klass.name
     is Type.funcPtr    -> function.name
     is Type.operandPtr -> "${type.toString()}*"
 }
@@ -26,6 +27,7 @@ fun Variable.asString() = "%$name:$type"
 fun Constant.asString() =
     when(type) {
         Type.boolean -> if (value == 1) "true" else "false"
+        Type.string  -> "\"$value\""
         else         -> value.toString()
     }
 
@@ -54,17 +56,21 @@ fun Instruction.callAsString(): String {
         buff.append(defs[0].toString() + " = ")                                      // return value
     }
 
-    val callee = (uses[0] as Variable).name
+    val use0   = uses[0]
+    val callee = when (use0) {
+        is Variable -> use0.name
+        is Constant -> use0.value.toString()
+        else        -> throw TODO("Unexpected callee type")
+    }
     val arguments = uses.drop(1).joinToString()
     buff.append("$opcode $callee($arguments)")
-
     return buff.toString()
 }
 
 //-----------------------------------------------------------------------------//
 
 fun Block.log() {
-    println("    block $name:")
+    println("    $name:")
     instructions.forEach { println("        $it") }
 }
 
@@ -92,10 +98,11 @@ fun Klass.log() {
 
 fun Ir.log() {
     functions.forEach { it.value.log() }
+    classes.forEach   { it.value.log() }
 }
 
 //-----------------------------------------------------------------------------//
 
-fun Function.genVariableName() = "${maxVariableId++}"
+fun Function.genVariableName() = "op${maxVariableId++}"
 fun Function.genBlockName(blockName: String) = "$blockName${maxBlockId++}"
 
