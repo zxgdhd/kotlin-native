@@ -227,12 +227,12 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
         val funcName = irCall.descriptor.toCfgName()
         val funcPtr  = Type.funcPtr(Function(funcName))
         val callee   = Variable(funcPtr, funcName)
-        val args = irCall.getArguments().map { (_, expr) -> selectStatement(expr) }
+        val args     = irCall.getArguments().map { (_, expr) -> selectStatement(expr) }
         val uses     = (listOf(callee) + args) as MutableList<Operand>
 
         val opcode = if (currentLandingBlock != null) {                                     // We're inside try block.
             currentBlock.addSuccessor(currentLandingBlock!!)
-            uses += Constant(Type.operandPtr(Type.long), currentLandingBlock)
+            uses += Constant(Type.ptr, currentLandingBlock)
             Opcode.invoke
         } else {
             Opcode.call

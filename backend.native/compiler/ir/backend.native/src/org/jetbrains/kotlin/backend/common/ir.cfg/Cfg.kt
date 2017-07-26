@@ -14,7 +14,6 @@ sealed class Type() {
     object ptr    : Type()
     class klassPtr  (val klass   : Klass   ) : Type()
     class funcPtr   (val function: Function) : Type()
-    class operandPtr(val type    : Type    ) : Type()
 
     override fun toString() = asString()
 }

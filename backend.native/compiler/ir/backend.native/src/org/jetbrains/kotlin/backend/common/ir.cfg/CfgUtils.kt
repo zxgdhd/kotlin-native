@@ -90,7 +90,7 @@ fun Block.ret(use: Operand) {
 
 fun Block.br(target: Block) {
     val instruction   = instruction(Opcode.br)
-    val targetOperand = Constant(Type.operandPtr(Type.long), target)
+    val targetOperand = Constant(Type.ptr, target)
     instruction.addUse(targetOperand)
 
     addSuccessor(target)
@@ -100,8 +100,8 @@ fun Block.br(target: Block) {
 
 fun Block.condBr(condition: Operand, targetTrue: Block, targetFalse: Block) {
     val instruction = instruction(Opcode.condbr)
-    val targetTrueOperand  = Constant(Type.operandPtr(Type.long), targetTrue)
-    val targetFalseOperand = Constant(Type.operandPtr(Type.long), targetFalse)
+    val targetTrueOperand  = Constant(Type.ptr, targetTrue)
+    val targetFalseOperand = Constant(Type.ptr, targetFalse)
     instruction.addUse(condition)
     instruction.addUse(targetTrueOperand)
     instruction.addUse(targetFalseOperand)

@@ -16,7 +16,6 @@ fun Type.asString(): String = when (this) {
     Type.ptr           -> "ptr"
     is Type.klassPtr   -> klass.name
     is Type.funcPtr    -> function.name
-    is Type.operandPtr -> "$type*"
 }
 
 //-----------------------------------------------------------------------------//
