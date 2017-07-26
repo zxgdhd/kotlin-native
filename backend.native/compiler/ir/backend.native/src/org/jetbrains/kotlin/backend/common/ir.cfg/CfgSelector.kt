@@ -233,15 +233,16 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
 
     //-------------------------------------------------------------------------//
 
-    private fun IrCall.isValueTypeOperatorCall() =
+    private fun IrCall.hasOpcode() =
             descriptor.isOperator &&
-            dispatchReceiver?.type?.isPrimitiveNumberType() ?: false &&
+            descriptor.name in operatorToOpcode &&
+            dispatchReceiver?.type?.isValueType() ?: false &&
             descriptor.valueParameters.all { it.type.isValueType() }
 
     //-------------------------------------------------------------------------//
 
     private fun selectCall(irCall: IrCall): Operand {
-        return if (irCall.isValueTypeOperatorCall()) {
+        return if (irCall.hasOpcode()) {
             selectOperator(irCall)
         } else {
             generateCall(irCall)
@@ -267,14 +268,14 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
         return inst(opcode, irCall.type.toCfgType(), *uses.toTypedArray())
     }
 
-
     //-------------------------------------------------------------------------//
 
     private fun selectOperator(irCall: IrCall): Operand {
         val uses = irCall.getArguments().map { selectStatement(it.second) }
         val type = irCall.type.toCfgType()
-        val result = operatorToOpcode[irCall.descriptor.name]?.let { inst(it, type, *uses.toTypedArray()) }
-        return result ?: generateCall(irCall)
+        val opcode = operatorToOpcode[irCall.descriptor.name]
+                ?: throw IllegalArgumentException("No opcode for call: $irCall")
+        return inst(opcode, type, *uses.toTypedArray())
     }
 
     //-------------------------------------------------------------------------//
