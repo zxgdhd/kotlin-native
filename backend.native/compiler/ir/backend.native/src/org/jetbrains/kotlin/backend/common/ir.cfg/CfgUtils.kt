@@ -2,9 +2,12 @@ package org.jetbrains.kotlin.backend.common.ir.cfg
 
 //-----------------------------------------------------------------------------//
 
-val CfgNull    = Constant(Type.ptr, "null")
-val TypeUnit   = Type.klassPtr(Klass("Unit"))
-val TypeString = Type.klassPtr(Klass("String"))
+val TypeUnit     = Type.ptr("unit")
+val TypeString   = Type.ptr("string")
+val TypeFunction = Type.ptr("function")
+val TypeBlock    = Type.ptr("block")
+val TypePtr      = Type.ptr("ptr")
+val CfgNull      = Constant(TypeUnit, "null")
 
 //--- Operand -----------------------------------------------------------------//
 
@@ -90,7 +93,7 @@ fun Block.ret(use: Operand) {
 
 fun Block.br(target: Block) {
     val instruction   = instruction(Opcode.br)
-    val targetOperand = Constant(Type.ptr, target)
+    val targetOperand = Constant(TypeBlock, target)
     instruction.addUse(targetOperand)
 
     addSuccessor(target)
@@ -100,8 +103,8 @@ fun Block.br(target: Block) {
 
 fun Block.condBr(condition: Operand, targetTrue: Block, targetFalse: Block) {
     val instruction = instruction(Opcode.condbr)
-    val targetTrueOperand  = Constant(Type.ptr, targetTrue)
-    val targetFalseOperand = Constant(Type.ptr, targetFalse)
+    val targetTrueOperand  = Constant(TypeBlock, targetTrue)
+    val targetFalseOperand = Constant(TypeBlock, targetFalse)
     instruction.addUse(condition)
     instruction.addUse(targetTrueOperand)
     instruction.addUse(targetFalseOperand)

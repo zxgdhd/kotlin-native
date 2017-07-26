@@ -252,14 +252,13 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
 
     private fun generateCall(irCall: IrCall): Operand {
         val funcName = irCall.descriptor.toCfgName()
-        val funcPtr  = Type.funcPtr(Function(funcName))
-        val callee   = Variable(funcPtr, funcName)
+        val callee   = Constant(TypeFunction, funcName)
         val args     = irCall.getArguments().map { (_, expr) -> selectStatement(expr) }
         val uses     = (listOf(callee) + args) as MutableList<Operand>
 
         val opcode = if (currentLandingBlock != null) {                                     // We're inside try block.
             currentBlock.addSuccessor(currentLandingBlock!!)
-            uses += Constant(Type.ptr, currentLandingBlock)
+            uses += Constant(TypeBlock, currentLandingBlock)
             Opcode.invoke
         } else {
             Opcode.call
@@ -438,7 +437,7 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
             throw IllegalStateException("IrVararg neither was lowered nor can be statically evaluated")
         }
         // TODO: replace with a correct array type
-        return Constant(Type.ptr, elements)
+        return Constant(Type.ptr(Klass("Array")), elements)
     }
 
     //-------------------------------------------------------------------------//
@@ -447,8 +446,8 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
         val prevBlock = currentBlock
 
         val header = newBlock("catch_header")
-        val exception = Variable(Type.ptr, "exception")
-        val isInstanceFunc = Variable(Type.ptr, "IsInstance")
+        val exception = Variable(TypePtr, "exception")
+        val isInstanceFunc = Variable(TypePtr, "IsInstance")
 
         // TODO: should expand to real exception object extraction
         header.instruction(Opcode.landingpad, exception)
@@ -510,7 +509,7 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
         if (isUnit()) return TypeUnit
 
         if (!isValueType()) {
-            return TypeUtils.getClassDescriptor(this)?.classPtr() ?: Type.ptr
+            return TypeUtils.getClassDescriptor(this)?.classPtr() ?: TypeUnit
         }
 
         return when (correspondingValueType) {
@@ -522,16 +521,16 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
             ValueType.LONG           -> Type.long
             ValueType.FLOAT          -> Type.float
             ValueType.DOUBLE         -> Type.double
-            ValueType.NATIVE_PTR     -> Type.ptr
-            ValueType.NATIVE_POINTED -> Type.ptr
-            ValueType.C_POINTER      -> Type.ptr
+            ValueType.NATIVE_PTR     -> TypePtr
+            ValueType.NATIVE_POINTED -> TypePtr
+            ValueType.C_POINTER      -> TypePtr
             null                     -> throw TODO("Null ValueType")
         }
     }
 
     //-------------------------------------------------------------------------//
 
-    fun ClassDescriptor.classPtr(): Type.klassPtr {
+    fun ClassDescriptor.classPtr(): Type {
         val klass = if (declarations.classes.contains(this)) {
             declarations.classes[this]!!
         } else {
@@ -539,7 +538,7 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
             classDependencies += clazz
             clazz
         }
-        return Type.klassPtr(klass)
+        return Type.ptr(klass)
     }
 
     //-------------------------------------------------------------------------//

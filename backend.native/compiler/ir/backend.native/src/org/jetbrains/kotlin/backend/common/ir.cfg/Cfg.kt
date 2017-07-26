@@ -11,9 +11,7 @@ sealed class Type() {
     object float  : Type()
     object double : Type()
     object char   : Type()
-    object ptr    : Type()
-    class klassPtr  (val klass   : Klass   ) : Type()
-    class funcPtr   (val function: Function) : Type()
+    class ptr<out T>(val value: T) : Type()
 
     override fun toString() = asString()
 }
@@ -23,7 +21,7 @@ sealed class Type() {
 class Klass(val name: String) {
     val supers  = mutableListOf<Klass>()
     val methods = mutableListOf<Function>()
-    val fields  = mutableListOf<Variable>()
+    val fields  = mutableListOf<Operand>()
 
     override fun toString() = name
 }
