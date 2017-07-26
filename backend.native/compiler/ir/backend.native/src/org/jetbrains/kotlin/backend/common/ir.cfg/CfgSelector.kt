@@ -150,14 +150,30 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
             is IrThrow               -> selectThrow              (statement)
             is IrTry                 -> selectTry                (statement)
             else -> {
-                println("Not implemented yet: $statement")
+                println("ERROR: Not implemented yet: $statement")
                 CfgNull
             }
         }
 
     //-------------------------------------------------------------------------//
 
-    private fun selectTypeOperatorCall(statement: IrTypeOperatorCall) =
+    private fun selectConst(const: IrConst<*>): Constant =
+        when(const.kind) {
+            IrConstKind.Null    -> CfgNull
+            IrConstKind.Boolean -> Constant(Type.boolean, const.value as Boolean)
+            IrConstKind.Byte    -> Constant(Type.byte,    const.value as Byte)
+            IrConstKind.Short   -> Constant(Type.short,   const.value as Short)
+            IrConstKind.Int     -> Constant(Type.int,     const.value as Int)
+            IrConstKind.Long    -> Constant(Type.long,    const.value as Long)
+            IrConstKind.Float   -> Constant(Type.float,   const.value as Float)
+            IrConstKind.Double  -> Constant(Type.double,  const.value as Double)
+            IrConstKind.Char    -> Constant(Type.char,    const.value as Char)
+            IrConstKind.String  -> Constant(TypeString,   const.value as String)
+        }
+
+    //-------------------------------------------------------------------------//
+
+    private fun selectTypeOperatorCall(statement: IrTypeOperatorCall): Operand =
         when (statement.operator) {
             IrTypeOperator.CAST                      -> selectCast           (statement)
             IrTypeOperator.IMPLICIT_INTEGER_COERCION -> selectIntegerCoercion(statement)
@@ -180,21 +196,21 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
     //-------------------------------------------------------------------------//
 
     private fun selectIntegerCoercion(statement: IrTypeOperatorCall): Operand {
-        println("Not implemented yet: selectIntegerCoercion")
+        println("ERROR: Not implemented yet: selectIntegerCoercion")
         return Variable(Type.int, "invalid")
     }
 
     //-------------------------------------------------------------------------//
 
     private fun selectImplicitCast(statement: IrTypeOperatorCall): Operand {
-        println("Not implemented yet: selectImplicitCast")
+        println("ERROR: Not implemented yet: selectImplicitCast")
         return Variable(Type.int, "invalid")
     }
 
     //-------------------------------------------------------------------------//
 
     private fun selectImplicitNotNull(statement: IrTypeOperatorCall): Operand {
-        println("Not implemented yet: selectImplicitNotNull")
+        println("ERROR: Not implemented yet: selectImplicitNotNull")
         return Variable(Type.int, "invalid")
     }
 
@@ -264,7 +280,6 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
         } else {
             Opcode.call
         }
-
         return inst(opcode, irCall.type.toCfgType(), *uses.toTypedArray())
     }
 
@@ -286,21 +301,6 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
         }
         return expression.statements.lastOrNull()
             ?.let { selectStatement(it) } ?: CfgNull
-    }
-
-    //-------------------------------------------------------------------------//
-
-    private fun selectConst(const: IrConst<*>): Constant = when(const.kind) {
-        IrConstKind.Null    -> CfgNull
-        IrConstKind.Boolean -> Constant(Type.boolean, const.value as Boolean)
-        IrConstKind.Byte    -> Constant(Type.byte,    const.value as Byte)
-        IrConstKind.Short   -> Constant(Type.short,   const.value as Short)
-        IrConstKind.Int     -> Constant(Type.int,     const.value as Int)
-        IrConstKind.Long    -> Constant(Type.long,    const.value as Long)
-        IrConstKind.Float   -> Constant(Type.float,   const.value as Float)
-        IrConstKind.Double  -> Constant(Type.double,  const.value as Double)
-        IrConstKind.Char    -> Constant(Type.char,    const.value as Char)
-        IrConstKind.String  -> Constant(TypeString,   const.value as String)
     }
 
     //-------------------------------------------------------------------------//
@@ -496,7 +496,7 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
     //-------------------------------------------------------------------------//
 
     private fun CallableDescriptor.returnsUnit()
-            = returnType == context.builtIns.unitType && !isSuspend
+        = returnType == context.builtIns.unitType && !isSuspend
 
     //-------------------------------------------------------------------------//
 
@@ -566,6 +566,6 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
     //-------------------------------------------------------------------------//
 
     override fun visitElement(element: IrElement)
-            = element.acceptChildren(this, null)
+        = element.acceptChildren(this, null)
 }
 
