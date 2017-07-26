@@ -32,15 +32,14 @@ import org.jetbrains.kotlin.types.typeUtil.isUnit
 internal class CfgSelector(val context: Context): IrElementVisitorVoid {
 
     private val ir = Ir()
-
-    private val declarations = createCfgDeclarations(context)
+    private val declarations      = createCfgDeclarations(context)
     private val classDependencies = mutableListOf<Klass>()
-    private val funcDependencies = mutableListOf<Function>()
+    private val funcDependencies  = mutableListOf<Function>()
 
-    private var currentBlock            = Block("Entry")
-    private var currentFunction         = Function("Outer")
-    private var currentLandingBlock: Block?     = null
-    private var currentClass: Klass?    = null
+    private var currentBlock                = Block("Entry")
+    private var currentFunction             = Function("Outer")
+    private var currentLandingBlock: Block? = null
+    private var currentClass: Klass?        = null
 
     private val variableMap = mutableMapOf<ValueDescriptor, Operand>()
     private val loopStack   = mutableListOf<LoopLabels>()
@@ -239,11 +238,7 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
             Opcode.call
         }
 
-        return if (irCall.type.isUnit()) {
-            inst(opcode, uses=*uses.toTypedArray())
-        } else {
-            inst(opcode, irCall.type.toCfgType(), *uses.toTypedArray())
-        }
+        return inst(opcode, irCall.type.toCfgType(), *uses.toTypedArray())
     }
 
     //-------------------------------------------------------------------------//
@@ -259,7 +254,7 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
             "srem"   -> inst(Opcode.srem, type, *uses.toTypedArray())
             else -> {
                 println("ERROR: unsupported operator type \"${irCall.descriptor.name}\"")
-                CfgUnit
+                CfgNull
             }
         }
     }
@@ -271,7 +266,7 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
             selectStatement(it)
         }
         return expression.statements.lastOrNull()
-            ?.let { selectStatement(it) } ?: CfgUnit
+            ?.let { selectStatement(it) } ?: CfgNull
     }
 
     //-------------------------------------------------------------------------//
@@ -286,7 +281,7 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
         IrConstKind.Float   -> Constant(Type.float,   const.value as Float)
         IrConstKind.Double  -> Constant(Type.double,  const.value as Double)
         IrConstKind.Char    -> Constant(Type.char,    const.value as Char)
-        IrConstKind.String  -> Constant(Type.string,  const.value as String)
+        IrConstKind.String  -> Constant(TypeString,   const.value as String)
     }
 
     //-------------------------------------------------------------------------//
@@ -309,7 +304,7 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
 
         loopStack.pop()
         currentBlock = loopExit
-        return CfgUnit
+        return CfgNull
     }
 
     //-------------------------------------------------------------------------//
@@ -317,7 +312,7 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
     private fun selectBreak(expression: IrBreak): Operand {
         loopStack.reversed().first { (loop, _, _) -> loop == expression.loop }
             .let { (_, _, exit) -> currentBlock.br(exit) }
-        return CfgUnit
+        return CfgNull
     }
 
     //-------------------------------------------------------------------------//
@@ -325,7 +320,7 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
     private fun selectContinue(expression: IrContinue): Operand {
         loopStack.reversed().first { (loop, _, _) -> loop == expression.loop }
             .let { (_, check, _) -> currentBlock.br(check) }
-        return CfgUnit
+        return CfgNull
     }
 
     //-------------------------------------------------------------------------//
@@ -335,7 +330,7 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
         val evaluated = selectStatement(irReturn.value)
         currentBlock.ret(evaluated)
         return if (target.returnsUnit()) {
-            CfgUnit
+            CfgNull
         } else {
             evaluated
         }
@@ -357,7 +352,7 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
         }
 
         currentBlock = exitBlock
-        return resultVar ?: CfgUnit
+        return resultVar ?: CfgNull
     }
 
     //-------------------------------------------------------------------------//
@@ -388,7 +383,7 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
         variableMap[irSetVariable.descriptor] = operand
         val variable = Variable(irSetVariable.value.type.toCfgType(), irSetVariable.descriptor.name.asString())
         currentBlock.mov(variable, operand)
-        return CfgUnit
+        return CfgNull
     }
 
     //-------------------------------------------------------------------------//
@@ -493,6 +488,8 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
     //-------------------------------------------------------------------------//
 
     fun KotlinType.toCfgType(): Type {
+        if (isUnit()) return TypeUnit
+
         if (!isValueType()) {
             return TypeUtils.getClassDescriptor(this)?.classPtr() ?: Type.ptr
         }
@@ -548,10 +545,10 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
 
     //-------------------------------------------------------------------------//
 
-    private fun inst(opcode: Opcode, defType: Type? = null, vararg uses: Operand): Operand {
-        if (defType == null) {
+    private fun inst(opcode: Opcode, defType: Type, vararg uses: Operand): Operand {
+        if (defType == TypeUnit) {
             currentBlock.instruction(opcode, *uses)
-            return CfgUnit
+            return CfgNull
         } else {
             val def = newVariable(defType)
             currentBlock.instruction(opcode, def, *uses)

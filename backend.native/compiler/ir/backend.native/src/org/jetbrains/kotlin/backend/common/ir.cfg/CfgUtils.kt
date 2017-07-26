@@ -2,8 +2,9 @@ package org.jetbrains.kotlin.backend.common.ir.cfg
 
 //-----------------------------------------------------------------------------//
 
-val CfgNull = Constant(Type.operandPtr(Type.boolean), 0)
-val CfgUnit = Constant(Type.operandPtr(Type.boolean), 0)
+val CfgNull    = Constant(Type.ptr, "null")
+val TypeUnit   = Type.klassPtr(Klass("Unit"))
+val TypeString = Type.klassPtr(Klass("String"))
 
 //--- Operand -----------------------------------------------------------------//
 
@@ -134,9 +135,7 @@ fun Opcode.isTerminal() = this == Opcode.br || this == Opcode.ret || this == Opc
 
 //-----------------------------------------------------------------------------//
 
-
 fun search(enter: Block): List<Block> {
-
     val result  = mutableListOf<Block>()
     val visited = mutableSetOf<Block>()
     val workSet = mutableListOf(enter)
@@ -152,7 +151,6 @@ fun search(enter: Block): List<Block> {
         result.add(block)
         workSet.remove(block)
     }
-
     return result
 }
 

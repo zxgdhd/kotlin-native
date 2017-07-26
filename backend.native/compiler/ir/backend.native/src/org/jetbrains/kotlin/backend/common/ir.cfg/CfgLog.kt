@@ -3,6 +3,8 @@ package org.jetbrains.kotlin.backend.common.ir.cfg
 //-----------------------------------------------------------------------------//
 
 fun Type.asString(): String = when (this) {
+    TypeString         -> "string"
+    TypeUnit           -> "unit"
     Type.boolean       -> "boolean"
     Type.byte          -> "byte"
     Type.short         -> "short"
@@ -11,7 +13,6 @@ fun Type.asString(): String = when (this) {
     Type.float         -> "float"
     Type.double        -> "double"
     Type.char          -> "char"
-    Type.string        -> "string"
     Type.ptr           -> "ptr"
     is Type.klassPtr   -> klass.name
     is Type.funcPtr    -> function.name
@@ -27,7 +28,7 @@ fun Variable.asString() = "$name:$type"
 fun Constant.asString() =
     when(type) {
         Type.boolean -> if (value == 1) "true" else "false"
-        Type.string  -> "\"$value\""
+        TypeString   -> "\"$value\""
         else         -> value.toString()
     }
 

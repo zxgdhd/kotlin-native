@@ -11,7 +11,6 @@ sealed class Type() {
     object float  : Type()
     object double : Type()
     object char   : Type()
-    object string : Type()
     object ptr    : Type()
     class klassPtr  (val klass   : Klass   ) : Type()
     class funcPtr   (val function: Function) : Type()
