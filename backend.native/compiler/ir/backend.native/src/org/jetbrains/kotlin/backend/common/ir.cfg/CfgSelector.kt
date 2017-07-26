@@ -8,7 +8,7 @@ import org.jetbrains.kotlin.backend.konan.Context
 import org.jetbrains.kotlin.backend.konan.ValueType
 import org.jetbrains.kotlin.backend.konan.correspondingValueType
 import org.jetbrains.kotlin.backend.konan.isValueType
-import org.jetbrains.kotlin.backend.konan.llvm.symbolName
+import org.jetbrains.kotlin.builtins.KotlinBuiltIns
 import org.jetbrains.kotlin.descriptors.CallableDescriptor
 import org.jetbrains.kotlin.descriptors.ClassDescriptor
 import org.jetbrains.kotlin.descriptors.ValueDescriptor
@@ -64,14 +64,6 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
     fun select() {
         context.irModule!!.accept(this, null)
         context.log { ir.log(); "" }
-
-//        CfgToBitcode(
-//                ir,
-//                context,
-//                declarations.functions.values.toList(),
-//                declarations.classes.values.toList(),
-//                funcDependencies
-//        )
     }
 
     //-------------------------------------------------------------------------//
@@ -159,14 +151,30 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
             is IrThrow               -> selectThrow              (statement)
             is IrTry                 -> selectTry                (statement)
             else -> {
-                println("Not implemented yet: $statement")
+                println("ERROR: Not implemented yet: $statement")
                 CfgNull
             }
         }
 
     //-------------------------------------------------------------------------//
 
-    private fun selectTypeOperatorCall(statement: IrTypeOperatorCall) =
+    private fun selectConst(const: IrConst<*>): Constant =
+        when(const.kind) {
+            IrConstKind.Null    -> CfgNull
+            IrConstKind.Boolean -> Constant(Type.boolean, const.value as Boolean)
+            IrConstKind.Byte    -> Constant(Type.byte,    const.value as Byte)
+            IrConstKind.Short   -> Constant(Type.short,   const.value as Short)
+            IrConstKind.Int     -> Constant(Type.int,     const.value as Int)
+            IrConstKind.Long    -> Constant(Type.long,    const.value as Long)
+            IrConstKind.Float   -> Constant(Type.float,   const.value as Float)
+            IrConstKind.Double  -> Constant(Type.double,  const.value as Double)
+            IrConstKind.Char    -> Constant(Type.char,    const.value as Char)
+            IrConstKind.String  -> Constant(TypeString,   const.value as String)
+        }
+
+    //-------------------------------------------------------------------------//
+
+    private fun selectTypeOperatorCall(statement: IrTypeOperatorCall): Operand =
         when (statement.operator) {
             IrTypeOperator.CAST                      -> selectCast           (statement)
             IrTypeOperator.IMPLICIT_INTEGER_COERCION -> selectIntegerCoercion(statement)
@@ -188,22 +196,38 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
 
     //-------------------------------------------------------------------------//
 
-    private fun selectIntegerCoercion(statement: IrTypeOperatorCall): Operand {
-        println("Not implemented yet: selectIntegerCoercion")
-        return Variable(Type.int, "invalid")
+    private fun KotlinType.isPrimitiveInteger(): Boolean {
+        return isPrimitiveNumberType() &&
+                !KotlinBuiltIns.isFloat(this) &&
+                !KotlinBuiltIns.isDouble(this) &&
+                !KotlinBuiltIns.isChar(this)
     }
 
     //-------------------------------------------------------------------------//
 
-    private fun selectImplicitCast(statement: IrTypeOperatorCall): Operand {
-        println("Not implemented yet: selectImplicitCast")
-        return Variable(Type.int, "invalid")
+    private fun selectIntegerCoercion(statement: IrTypeOperatorCall): Operand {
+        val type = statement.typeOperand
+        assert(type.isPrimitiveInteger())
+        val result = selectStatement(statement.argument)
+        val srcType = result.type
+        val dstType = type.toCfgType()
+        val srcWidth = srcType.byteSize
+        val dstWidth = dstType.byteSize
+        return when {
+            srcWidth == dstWidth           -> result
+            srcWidth > dstWidth            -> inst(Opcode.trunc, dstType, result)
+            else /* srcWidth < dstWidth */ -> inst(Opcode.sext, dstType, result)
+        }
     }
+
+    //-------------------------------------------------------------------------//
+
+    private fun selectImplicitCast(statement: IrTypeOperatorCall): Operand = selectStatement(statement.argument)
 
     //-------------------------------------------------------------------------//
 
     private fun selectImplicitNotNull(statement: IrTypeOperatorCall): Operand {
-        println("Not implemented yet: selectImplicitNotNull")
+        println("ERROR: Not implemented yet: selectImplicitNotNull")
         return Variable(Type.int, "invalid")
     }
 
@@ -277,7 +301,6 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
         } else {
             Opcode.call
         }
-
         return inst(opcode, irCall.type.toCfgType(), *uses.toTypedArray())
     }
 
@@ -299,21 +322,6 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
         }
         return expression.statements.lastOrNull()
             ?.let { selectStatement(it) } ?: CfgNull
-    }
-
-    //-------------------------------------------------------------------------//
-
-    private fun selectConst(const: IrConst<*>): Constant = when(const.kind) {
-        IrConstKind.Null    -> CfgNull
-        IrConstKind.Boolean -> Constant(Type.boolean, const.value as Boolean)
-        IrConstKind.Byte    -> Constant(Type.byte,    const.value as Byte)
-        IrConstKind.Short   -> Constant(Type.short,   const.value as Short)
-        IrConstKind.Int     -> Constant(Type.int,     const.value as Int)
-        IrConstKind.Long    -> Constant(Type.long,    const.value as Long)
-        IrConstKind.Float   -> Constant(Type.float,   const.value as Float)
-        IrConstKind.Double  -> Constant(Type.double,  const.value as Double)
-        IrConstKind.Char    -> Constant(Type.char,    const.value as Char)
-        IrConstKind.String  -> Constant(TypeString,   const.value as String)
     }
 
     //-------------------------------------------------------------------------//
@@ -509,7 +517,7 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
     //-------------------------------------------------------------------------//
 
     private fun CallableDescriptor.returnsUnit()
-            = returnType == context.builtIns.unitType && !isSuspend
+        = returnType == context.builtIns.unitType && !isSuspend
 
     //-------------------------------------------------------------------------//
 
@@ -579,6 +587,6 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
     //-------------------------------------------------------------------------//
 
     override fun visitElement(element: IrElement)
-            = element.acceptChildren(this, null)
+        = element.acceptChildren(this, null)
 }
 
