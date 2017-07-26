@@ -15,7 +15,7 @@ fun Type.asString(): String = when (this) {
     Type.ptr           -> "ptr"
     is Type.klassPtr   -> klass.name
     is Type.funcPtr    -> function.name
-    is Type.operandPtr -> "${type.toString()}*"
+    is Type.operandPtr -> "$type*"
 }
 
 //-----------------------------------------------------------------------------//
@@ -69,6 +69,13 @@ fun Instruction.callAsString(): String {
 
 //-----------------------------------------------------------------------------//
 
+fun Function.asString(): String {
+    val valueParametersStr = parameters.joinToString(", ", "", "", -1, "", { it.asString() })     // Function parameters as string.
+    return "$name($valueParametersStr)"                                                     // Print selectFunction declaration.
+}
+
+//-----------------------------------------------------------------------------//
+
 fun Block.log() {
     println("  $name:")
     instructions.forEach { println("    $it") }
@@ -77,8 +84,7 @@ fun Block.log() {
 //-----------------------------------------------------------------------------//
 
 fun Function.log() {
-    val valueParametersStr = parameters.joinToString(", ", "", "", -1, "", { it.asString() })       // Function parameters as string.
-    println("\nfun $name($valueParametersStr) {")                                                     // Print selectFunction declaration.
+    println("\nfun $this {")                                                     // Print selectFunction declaration.
     val blocks = search(enter)                                                                      // Get basic blocks of selectFunction body.
     blocks.reversed().forEach(Block::log)                                                           // Print the blocks.
     println("}")
@@ -87,16 +93,18 @@ fun Function.log() {
 //-----------------------------------------------------------------------------//
 
 fun Klass.log() {
-    println("class $name {")
+    println("\nclass $name {")
     fields.forEach  { println("    field $it") }
-    methods.forEach { println("    fun   $it") }
+    methods.forEach { println("    fun $it") }
     println("}")
 }
 
 //-----------------------------------------------------------------------------//
 
 fun Ir.log() {
-    classes.forEach { it.value.log() }
+    if (klasses.isNotEmpty()) println("\n//--- Classes ---------------------------------------------//")
+    klasses.forEach { it.value.log() }
+    if (functions.isNotEmpty()) println("\n//--- Functions -------------------------------------------//")
     functions.forEach { it.value.log() }
     functions.forEach { (_, f) -> f.enter.let { dotFunction(it, f.name)} }
 }

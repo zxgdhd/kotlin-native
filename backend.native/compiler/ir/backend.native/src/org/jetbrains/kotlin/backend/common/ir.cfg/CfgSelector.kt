@@ -56,12 +56,11 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
 
     //-------------------------------------------------------------------------//
 
-
     override fun visitClass(declaration: IrClass) {
         val klass = declarations.classes[declaration.descriptor]
         if (klass != null) {
             currentClass = klass
-            ir.newClass(klass)
+            ir.newKlass(klass)
             declaration.declarations.forEach {
                 it.acceptVoid(this)
             }
@@ -292,7 +291,6 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
         IrConstKind.Int     -> Constant(Type.int,     const.value as Int)
         IrConstKind.Long    -> Constant(Type.long,    const.value as Long)
         IrConstKind.Float   -> Constant(Type.float,   const.value as Float)
-        IrConstKind.String  -> Constant(Type.ptr,     const.value as String)
         IrConstKind.Double  -> Constant(Type.double,  const.value as Double)
         IrConstKind.Char    -> Constant(Type.char,    const.value as Char)
         IrConstKind.String  -> Constant(Type.string,  const.value as String)

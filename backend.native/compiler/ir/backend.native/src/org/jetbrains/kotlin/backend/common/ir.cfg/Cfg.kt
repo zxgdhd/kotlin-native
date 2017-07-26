@@ -23,10 +23,9 @@ sealed class Type() {
 //-----------------------------------------------------------------------------//
 
 class Klass(val name: String) {
-    val superClass: Klass? = null
-    val interfaces = mutableListOf<Klass>()
-    val methods    = mutableListOf<Function>()
-    val fields     = mutableListOf<Variable>()
+    val supers  = mutableListOf<Klass>()
+    val methods = mutableListOf<Function>()
+    val fields  = mutableListOf<Variable>()
 
     override fun toString() = name
 }
@@ -72,28 +71,26 @@ class Block(val name: String) {
 //-----------------------------------------------------------------------------//
 
 class Function(val name: String) {
-    val reifiedTypes = mutableListOf<Type>()
-    val parameters   = mutableListOf<Variable>()
-    var enter = Block("enter")
+    val parameters    = mutableListOf<Variable>()
+    var enter         = Block("enter")
     var maxBlockId    = 0
     var maxVariableId = 0
 
-    override fun toString() = name
+    override fun toString() = asString()
 }
 
 //-----------------------------------------------------------------------------//
 
 class Ir {
     val functions  = mutableMapOf<String, Function>()
-    val classes    = mutableMapOf<String, Klass>()
-    val globalInit = Function("globalInit")
+    val klasses    = mutableMapOf<String, Klass>()
 
     fun newFunction(function: Function) {
         functions[function.name] = function
     }
 
-    fun newClass(clazz: Klass) {
-        classes[clazz.name] = clazz
+    fun newKlass(klass: Klass) {
+        klasses[klass.name] = klass
     }
 }
 

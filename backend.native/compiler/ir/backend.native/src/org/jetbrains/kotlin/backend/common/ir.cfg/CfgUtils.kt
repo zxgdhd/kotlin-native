@@ -125,7 +125,6 @@ fun Block.invoke(def: Variable?, vararg uses: Operand) {
 //--- Function ----------------------------------------------------------------//
 
 fun Function.newBlock(name: String = "block") = Block(genBlockName(name))
-fun Function.addTypeParameters(parameters: List<Type>) { this.reifiedTypes.addAll(parameters) }
 fun Function.addValueParameters(parameters: List<Variable>) { this.parameters.addAll(parameters) }
 
 //--- Utilities ---------------------------------------------------------------//
