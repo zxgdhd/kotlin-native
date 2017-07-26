@@ -223,21 +223,15 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
     //-------------------------------------------------------------------------//
 
     private fun selectCall(irCall: IrCall): Operand {
-        if (irCall.descriptor.isOperator) return selectOperator(irCall)
-        return generateCall(irCall)
-    }
+        if (irCall.isIntrinsic()) return selectOperator(irCall)
 
-    //-------------------------------------------------------------------------//
-
-    private fun generateCall(irCall: IrCall): Operand {
         val funcName = irCall.descriptor.toCfgName()
         val funcPtr  = Type.funcPtr(Function(funcName))
         val callee   = Variable(funcPtr, funcName)
         val args = irCall.getArguments().map { (_, expr) -> selectStatement(expr) }
         val uses     = (listOf(callee) + args) as MutableList<Operand>
 
-        val opcode = if (currentLandingBlock != null) {
-            // we're inside try block
+        val opcode = if (currentLandingBlock != null) {                                     // We're inside try block.
             currentBlock.addSuccessor(currentLandingBlock!!)
             uses += Constant(Type.operandPtr(Type.long), currentLandingBlock)
             Opcode.invoke
@@ -263,7 +257,6 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
             "times"  -> inst(Opcode.mul,  type, *uses.toTypedArray())
             "div"    -> inst(Opcode.sdiv, type, *uses.toTypedArray())
             "srem"   -> inst(Opcode.srem, type, *uses.toTypedArray())
-            "invoke" -> generateCall(irCall)
             else -> {
                 println("ERROR: unsupported operator type \"${irCall.descriptor.name}\"")
                 CfgUnit
@@ -499,14 +492,6 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
 
     //-------------------------------------------------------------------------//
 
-    private fun newVariable(type: Type) = Variable(type, currentFunction.genVariableName())
-
-    //-------------------------------------------------------------------------//
-
-    private fun newBlock(name: String = "block") = currentFunction.newBlock(name)
-
-    //-------------------------------------------------------------------------//
-
     fun KotlinType.toCfgType(): Type {
         if (!isValueType()) {
             return TypeUtils.getClassDescriptor(this)?.classPtr() ?: Type.ptr
@@ -530,6 +515,18 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
 
     //-------------------------------------------------------------------------//
 
+    val intrinsics = setOf("plus", "minus", "times", "div", "srem")
+
+    private fun IrCall.isIntrinsic(): Boolean {
+        if (!descriptor.isOperator)                           return false
+        if (!intrinsics.contains(descriptor.name.toString())) return false
+        val complexTypeArgs = getArguments().find { !it.second.type.isValueType() }
+        if (complexTypeArgs != null)                          return false
+        return true
+    }
+
+    //-------------------------------------------------------------------------//
+
     fun ClassDescriptor.classPtr(): Type.klassPtr {
         val klass = if (declarations.classes.contains(this)) {
             declarations.classes[this]!!
@@ -540,6 +537,14 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
         }
         return Type.klassPtr(klass)
     }
+
+    //-------------------------------------------------------------------------//
+
+    private fun newVariable(type: Type) = Variable(type, currentFunction.genVariableName())
+
+    //-------------------------------------------------------------------------//
+
+    private fun newBlock(name: String = "block") = currentFunction.newBlock(name)
 
     //-------------------------------------------------------------------------//
 

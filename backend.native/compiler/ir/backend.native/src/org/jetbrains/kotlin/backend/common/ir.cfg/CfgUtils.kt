@@ -2,8 +2,8 @@ package org.jetbrains.kotlin.backend.common.ir.cfg
 
 //-----------------------------------------------------------------------------//
 
-val CfgNull   = Constant(Type.operandPtr(Type.boolean), 0)
-val CfgUnit   = Constant(Type.operandPtr(Type.boolean), 0)
+val CfgNull = Constant(Type.operandPtr(Type.boolean), 0)
+val CfgUnit = Constant(Type.operandPtr(Type.boolean), 0)
 
 //--- Operand -----------------------------------------------------------------//
 
