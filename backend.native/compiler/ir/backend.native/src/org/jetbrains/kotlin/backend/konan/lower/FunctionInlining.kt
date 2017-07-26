@@ -57,7 +57,7 @@ internal class FunctionInlining(val context: Context): IrElementTransformerVoidW
     fun inline(irModule: IrModuleFragment): IrElement {
         val transformedModule = irModule.accept(this, null)
         transformedModule.transformChildrenVoid(
-                DescriptorSubstitutorForExternalScope(globalSubstituteMap)                  // Transform calls to object that might be returned from inline selectFunction selectCall.
+                DescriptorSubstitutorForExternalScope(globalSubstituteMap)                  // Transform calls to object that might be returned from inline function call.
         )
         return transformedModule
     }
@@ -68,11 +68,11 @@ internal class FunctionInlining(val context: Context): IrElementTransformerVoidW
 
         val irCall = super.visitCall(expression) as IrCall
         val functionDescriptor = irCall.descriptor
-        if (!functionDescriptor.needsInlining) return irCall                                // This selectCall does not need inlining.
+        if (!functionDescriptor.needsInlining) return irCall                                // This call does not need inlining.
 
-        val functionDeclaration = getFunctionDeclaration(irCall)                            // Get declaration of the selectFunction to be inlined.
+        val functionDeclaration = getFunctionDeclaration(irCall)                            // Get declaration of the function to be inlined.
         if (functionDeclaration == null) {                                                  // We failed to get the declaration.
-            val message = "Inliner failed to obtain selectFunction declaration: " +
+            val message = "Inliner failed to obtain function declaration: " +
                           functionDescriptor.fqNameSafe.toString()
             context.reportWarning(message, currentFile, irCall)                             // Report warning.
             return irCall
@@ -90,7 +90,7 @@ internal class FunctionInlining(val context: Context): IrElementTransformerVoidW
         val functionDescriptor = irCall.descriptor
         val originalDescriptor = functionDescriptor.resolveFakeOverride().original
         val functionDeclaration =
-            context.ir.originalModuleIndex.functions[originalDescriptor] ?:                 // If selectFunction is declared in the current module.
+            context.ir.originalModuleIndex.functions[originalDescriptor] ?:                 // If function is declared in the current module.
                 deserializer.deserializeInlineBody(originalDescriptor)                      // Function is declared in another module.
         return functionDeclaration as IrFunction?
     }
@@ -125,14 +125,14 @@ private class Inliner(val globalSubstituteMap: MutableMap<DeclarationDescriptor,
 
         val evaluationStatements = evaluateArguments(irCall, functionDeclaration)           // And list of evaluation statements.
 
-        val copyFunctionDeclaration = copyIrElement.copy(                                   // Create copy of original selectFunction.
-            irElement       = functionDeclaration,                                          // Descriptors declared inside the selectFunction will be copied.
+        val copyFunctionDeclaration = copyIrElement.copy(                                   // Create copy of original function.
+            irElement       = functionDeclaration,                                          // Descriptors declared inside the function will be copied.
             typeSubstitutor = createTypeSubstitutor(irCall)                                 // Type parameters will be substituted with type arguments.
         ) as IrFunction
 
-        val statements = (copyFunctionDeclaration.body as IrBlockBody).statements           // IR statements from selectFunction copy.
+        val statements = (copyFunctionDeclaration.body as IrBlockBody).statements           // IR statements from function copy.
         val returnType = copyFunctionDeclaration.descriptor.returnType!!                    // Substituted return type.
-        val inlineFunctionBody = IrReturnableBlockImpl(                                     // Create new IR element to replace "selectCall".
+        val inlineFunctionBody = IrReturnableBlockImpl(                                     // Create new IR element to replace "call".
             startOffset = copyFunctionDeclaration.startOffset,
             endOffset   = copyFunctionDeclaration.endOffset,
             type        = returnType,
@@ -144,7 +144,7 @@ private class Inliner(val globalSubstituteMap: MutableMap<DeclarationDescriptor,
         val transformer = ParameterSubstitutor()
         inlineFunctionBody.transformChildrenVoid(transformer)                               // Replace value parameters with arguments.
         inlineFunctionBody.statements.addAll(0, evaluationStatements)                       // Insert evaluation statements.
-        return inlineFunctionBody                                                           // Replace selectCall site with InlineFunctionBody.
+        return inlineFunctionBody                                                           // Replace call site with InlineFunctionBody.
     }
 
     //---------------------------------------------------------------------//
@@ -167,11 +167,11 @@ private class Inliner(val globalSubstituteMap: MutableMap<DeclarationDescriptor,
 
         override fun visitCall(expression: IrCall): IrExpression {
 
-            if (!isLambdaCall(expression)) return super.visitCall(expression)               // If it is not lambda selectCall - return.
+            if (!isLambdaCall(expression)) return super.visitCall(expression)               // If it is not lambda call - return.
 
             val dispatchReceiver = expression.dispatchReceiver as IrGetValue                // Here we can have only GetValue as dispatch receiver.
             val functionArgument = substituteMap[dispatchReceiver.descriptor]               // Try to find lambda representation.   // TODO original?
-            if (functionArgument == null)     return super.visitCall(expression)            // It is not selectCall of argument lambda - nothing to substitute.
+            if (functionArgument == null)     return super.visitCall(expression)            // It is not call of argument lambda - nothing to substitute.
             if (functionArgument !is IrBlock) return super.visitCall(expression)
 
             val dispatchDescriptor = dispatchReceiver.descriptor                            // Check if this functional parameter has "noInline" tag
@@ -180,7 +180,7 @@ private class Inliner(val globalSubstituteMap: MutableMap<DeclarationDescriptor,
 
             val functionDeclaration = getLambdaFunction(functionArgument)
             val newExpression = inlineFunction(expression, functionDeclaration)             // Inline the lambda. Lambda parameters will be substituted with lambda arguments.
-            return newExpression.transform(this, null)                                      // Substitute lambda arguments with target selectFunction arguments.
+            return newExpression.transform(this, null)                                      // Substitute lambda arguments with target function arguments.
         }
 
         //-----------------------------------------------------------------//
@@ -193,7 +193,7 @@ private class Inliner(val globalSubstituteMap: MutableMap<DeclarationDescriptor,
     private fun isLambdaCall(irCall: IrCall) : Boolean {
         if (!(irCall.descriptor as FunctionDescriptor).isFunctionInvoke) return false       // Lambda mast be called by "invoke".
         if (irCall.dispatchReceiver !is IrGetValue)                      return false       // Dispatch receiver mast be IrGetValue.
-        return true                                                                         // It is lambda selectCall.
+        return true                                                                         // It is lambda call.
     }
 
     //-------------------------------------------------------------------------//
@@ -252,10 +252,10 @@ private class Inliner(val globalSubstituteMap: MutableMap<DeclarationDescriptor,
     ): List<ParameterToArgument> {
 
         val parameterToArgument = mutableListOf<ParameterToArgument>()                      // Result list.
-        val functionDescriptor = irFunction.descriptor.original                             // Descriptor of selectFunction to be called.
+        val functionDescriptor = irFunction.descriptor.original                             // Descriptor of function to be called.
 
         if (irCall.dispatchReceiver != null &&                                              // Only if there are non null dispatch receivers both
-            functionDescriptor.dispatchReceiverParameter != null)                           // on selectCall site and in selectFunction declaration.
+            functionDescriptor.dispatchReceiverParameter != null)                           // on call site and in function declaration.
             parameterToArgument += ParameterToArgument(
                 parameterDescriptor = functionDescriptor.dispatchReceiverParameter!!,
                 argumentExpression  = irCall.dispatchReceiver!!
@@ -281,7 +281,7 @@ private class Inliner(val globalSubstituteMap: MutableMap<DeclarationDescriptor,
 
         val parametersWithDefaultToArgument = mutableListOf<ParameterToArgument>()
         functionDescriptor.valueParameters.forEach { parameterDescriptor ->                 // Iterate value parameter descriptors.
-            val argument = valueArguments[parameterDescriptor.index]                        // Get appropriate argument from selectCall site.
+            val argument = valueArguments[parameterDescriptor.index]                        // Get appropriate argument from call site.
             when {
                 argument != null -> {                                                       // Argument is good enough.
                     parameterToArgument += ParameterToArgument(                             // Associate current parameter with the argument.
@@ -312,7 +312,7 @@ private class Inliner(val globalSubstituteMap: MutableMap<DeclarationDescriptor,
                 }
 
                 else -> {
-                    val message = "Incomplete expression: selectCall to $functionDescriptor " +
+                    val message = "Incomplete expression: call to $functionDescriptor " +
                         "has no argument at index ${parameterDescriptor.index}"
                     throw Error(message)
                 }

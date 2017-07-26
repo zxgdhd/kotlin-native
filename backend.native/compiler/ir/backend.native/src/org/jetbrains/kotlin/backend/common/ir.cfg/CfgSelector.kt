@@ -8,7 +8,9 @@ import org.jetbrains.kotlin.backend.konan.Context
 import org.jetbrains.kotlin.backend.konan.ValueType
 import org.jetbrains.kotlin.backend.konan.correspondingValueType
 import org.jetbrains.kotlin.backend.konan.isValueType
-import org.jetbrains.kotlin.descriptors.*
+import org.jetbrains.kotlin.descriptors.CallableDescriptor
+import org.jetbrains.kotlin.descriptors.ClassDescriptor
+import org.jetbrains.kotlin.descriptors.ValueDescriptor
 import org.jetbrains.kotlin.ir.IrElement
 import org.jetbrains.kotlin.ir.IrStatement
 import org.jetbrains.kotlin.ir.declarations.IrClass
@@ -25,7 +27,9 @@ import org.jetbrains.kotlin.ir.visitors.acceptVoid
 import org.jetbrains.kotlin.resolve.descriptorUtil.fqNameSafe
 import org.jetbrains.kotlin.types.KotlinType
 import org.jetbrains.kotlin.types.TypeUtils
+import org.jetbrains.kotlin.types.typeUtil.isPrimitiveNumberType
 import org.jetbrains.kotlin.types.typeUtil.isUnit
+import org.jetbrains.kotlin.util.OperatorNameConventions
 
 //-----------------------------------------------------------------------------//
 
@@ -43,6 +47,14 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
 
     private val variableMap = mutableMapOf<ValueDescriptor, Operand>()
     private val loopStack   = mutableListOf<LoopLabels>()
+
+    private val operatorToOpcode = mutableMapOf(
+            OperatorNameConventions.PLUS to Opcode.add,
+            OperatorNameConventions.MINUS to Opcode.sub,
+            OperatorNameConventions.TIMES to Opcode.mul,
+            OperatorNameConventions.DIV to Opcode.sdiv,
+            OperatorNameConventions.MOD to Opcode.srem
+    )
 
     private data class LoopLabels(val loop: IrLoop, val check: Block, val exit: Block)
 
@@ -221,9 +233,24 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
 
     //-------------------------------------------------------------------------//
 
-    private fun selectCall(irCall: IrCall): Operand {
-        if (irCall.isIntrinsic()) return selectOperator(irCall)
+    private fun IrCall.isValueTypeOperatorCall() =
+            descriptor.isOperator &&
+            dispatchReceiver?.type?.isPrimitiveNumberType() ?: false &&
+            descriptor.valueParameters.all { it.type.isValueType() }
 
+    //-------------------------------------------------------------------------//
+
+    private fun selectCall(irCall: IrCall): Operand {
+        return if (irCall.isValueTypeOperatorCall()) {
+            selectOperator(irCall)
+        } else {
+            generateCall(irCall)
+        }
+    }
+
+    //-------------------------------------------------------------------------//
+
+    private fun generateCall(irCall: IrCall): Operand {
         val funcName = irCall.descriptor.toCfgName()
         val funcPtr  = Type.funcPtr(Function(funcName))
         val callee   = Variable(funcPtr, funcName)
@@ -241,22 +268,14 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
         return inst(opcode, irCall.type.toCfgType(), *uses.toTypedArray())
     }
 
+
     //-------------------------------------------------------------------------//
 
     private fun selectOperator(irCall: IrCall): Operand {
         val uses = irCall.getArguments().map { selectStatement(it.second) }
         val type = irCall.type.toCfgType()
-        return when(irCall.descriptor.name.toString()) {
-            "plus"   -> inst(Opcode.add,  type, *uses.toTypedArray())
-            "minus"  -> inst(Opcode.sub,  type, *uses.toTypedArray())
-            "times"  -> inst(Opcode.mul,  type, *uses.toTypedArray())
-            "div"    -> inst(Opcode.sdiv, type, *uses.toTypedArray())
-            "srem"   -> inst(Opcode.srem, type, *uses.toTypedArray())
-            else -> {
-                println("ERROR: unsupported operator type \"${irCall.descriptor.name}\"")
-                CfgNull
-            }
-        }
+        val result = operatorToOpcode[irCall.descriptor.name]?.let { inst(it, type, *uses.toTypedArray()) }
+        return result ?: generateCall(irCall)
     }
 
     //-------------------------------------------------------------------------//
@@ -508,18 +527,6 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
             ValueType.C_POINTER      -> Type.ptr
             null                     -> throw TODO("Null ValueType")
         }
-    }
-
-    //-------------------------------------------------------------------------//
-
-    val intrinsics = setOf("plus", "minus", "times", "div", "srem")
-
-    private fun IrCall.isIntrinsic(): Boolean {
-        if (!descriptor.isOperator)                           return false
-        if (!intrinsics.contains(descriptor.name.toString())) return false
-        val complexTypeArg = getArguments().find { !it.second.type.isValueType() }
-        if (complexTypeArg != null)                           return false
-        return true
     }
 
     //-------------------------------------------------------------------------//

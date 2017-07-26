@@ -467,7 +467,7 @@ internal class EnumClassLowering(val context: Context) : ClassLoweringPass {
                         enumConstructorCall.symbol, enumConstructorCall.descriptor)
 
                 assert(result.descriptor.valueParameters.size == 2) {
-                    "Enum(String, Int) constructor selectCall expected:\n${result.dump()}"
+                    "Enum(String, Int) constructor call expected:\n${result.dump()}"
                 }
 
                 val nameParameter = enumClassConstructor.valueParameters.getOrElse(0) {
@@ -536,7 +536,7 @@ internal class EnumClassLowering(val context: Context) : ClassLoweringPass {
             }
 
             override fun transform(delegatingConstructorCall: IrDelegatingConstructorCall): IrExpression {
-                throw AssertionError("Unexpected delegating constructor selectCall within enum entry: $enumEntry")
+                throw AssertionError("Unexpected delegating constructor call within enum entry: $enumEntry")
             }
 
             abstract fun createConstructorCall(startOffset: Int, endOffset: Int, loweredConstructor: IrConstructorSymbol): IrMemberAccessExpression
@@ -597,7 +597,7 @@ internal class EnumClassLowering(val context: Context) : ClassLoweringPass {
                 expression.transformChildrenVoid(this)
 
                 val callTransformer = enumConstructorCallTransformer ?:
-                        throw AssertionError("Enum constructor selectCall outside of enum entry initialization or enum class constructor:\n" + irClass.dump())
+                        throw AssertionError("Enum constructor call outside of enum entry initialization or enum class constructor:\n" + irClass.dump())
 
 
                 return callTransformer.transform(expression)
@@ -608,7 +608,7 @@ internal class EnumClassLowering(val context: Context) : ClassLoweringPass {
 
                 if (expression.descriptor.containingDeclaration.kind == ClassKind.ENUM_CLASS) {
                     val callTransformer = enumConstructorCallTransformer ?:
-                            throw AssertionError("Enum constructor selectCall outside of enum entry initialization or enum class constructor:\n" + irClass.dump())
+                            throw AssertionError("Enum constructor call outside of enum entry initialization or enum class constructor:\n" + irClass.dump())
 
                     return callTransformer.transform(expression)
                 }

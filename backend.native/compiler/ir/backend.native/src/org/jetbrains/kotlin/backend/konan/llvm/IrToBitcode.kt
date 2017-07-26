@@ -209,7 +209,7 @@ internal interface CodeContext {
     fun genGetValue(descriptor: ValueDescriptor): LLVMValueRef
 
     /**
-     * Returns owning selectFunction scope.
+     * Returns owning function scope.
      *
      * @return the requested value
      */
@@ -248,7 +248,7 @@ internal class CodeGeneratorVisitor(val context: Context) : IrElementVisitorVoid
     /**
      * Fake [CodeContext] that doesn't support any operation.
      *
-     * During selectFunction code generation [FunctionScope] should be set up.
+     * During function code generation [FunctionScope] should be set up.
      */
     private object TopLevelCodeContext : CodeContext {
         private fun unsupported(any: Any? = null): Nothing = throw UnsupportedOperationException(any?.toString() ?: "")
@@ -328,7 +328,7 @@ internal class CodeGeneratorVisitor(val context: Context) : IrElementVisitorVoid
     //-------------------------------------------------------------------------//
 
     fun createInitBody(initName: String): LLVMValueRef {
-        val initFunction = LLVMAddFunction(context.llvmModule, initName, kInitFuncType)!!    // create LLVM selectFunction
+        val initFunction = LLVMAddFunction(context.llvmModule, initName, kInitFuncType)!!    // create LLVM function
         codegen.prologue(initFunction, voidType)
         using(FunctionScope(initFunction)) {
             val bbInit = codegen.basicBlock("init")
@@ -377,7 +377,7 @@ internal class CodeGeneratorVisitor(val context: Context) : IrElementVisitorVoid
     //-------------------------------------------------------------------------//
 
     fun createInitCtor(ctorName: String, initNodePtr: LLVMValueRef) {
-        val ctorFunction = LLVMAddFunction(context.llvmModule, ctorName, kVoidFuncType)!!   // Create constructor selectFunction.
+        val ctorFunction = LLVMAddFunction(context.llvmModule, ctorName, kVoidFuncType)!!   // Create constructor function.
         codegen.prologue(ctorFunction, voidType)
         codegen.call(context.llvm.appendToInitalizersTail, listOf(initNodePtr))             // Add node to the tail of initializers list.
         codegen.ret(null)
@@ -528,7 +528,7 @@ internal class CodeGeneratorVisitor(val context: Context) : IrElementVisitorVoid
     }
 
     /**
-     * The [CodeContext] enclosing the entire selectFunction body.
+     * The [CodeContext] enclosing the entire function body.
      */
     private inner class FunctionScope (val declaration: IrFunction?) :
             ParameterScope(bindParameters(declaration?.descriptor)) {
@@ -568,7 +568,7 @@ internal class CodeGeneratorVisitor(val context: Context) : IrElementVisitorVoid
     }
 
     /**
-     * Binds LLVM selectFunction parameters to IR parameter descriptors.
+     * Binds LLVM function parameters to IR parameter descriptors.
      */
     private fun bindParameters(descriptor: FunctionDescriptor?): Map<ParameterDescriptor, LLVMValueRef> {
         if (descriptor == null) return emptyMap()
@@ -848,7 +848,7 @@ internal class CodeGeneratorVisitor(val context: Context) : IrElementVisitorVoid
     private inner abstract class CatchingScope : InnerScopeImpl() {
 
         /**
-         * The LLVM `landingpad` such that if invoked selectFunction throws an exception,
+         * The LLVM `landingpad` such that if invoked function throws an exception,
          * then this exception is passed to [handler].
          */
         private val landingpad: LLVMBasicBlockRef by lazy {
@@ -920,7 +920,7 @@ internal class CodeGeneratorVisitor(val context: Context) : IrElementVisitorVoid
             }
         }
 
-        // The selectCall inside [CatchingScope] must be configured to dispatch exception to the scope's handler.
+        // The call inside [CatchingScope] must be configured to dispatch exception to the scope's handler.
         override fun genCall(function: LLVMValueRef, args: List<LLVMValueRef>, lifetime: Lifetime): LLVMValueRef {
             val res = codegen.call(function, args, lifetime, this::landingpad)
             return res
@@ -1440,10 +1440,10 @@ internal class CodeGeneratorVisitor(val context: Context) : IrElementVisitorVoid
                 super.genReturn(target, value)
                 return
             }
-                                                                                // It is local return from current selectFunction.
+                                                                                // It is local return from current function.
             codegen.br(getExit())                                               // Generate branch on exit block.
 
-            if (!target.returnsUnit()) {                                        // If selectFunction returns more then "unit"
+            if (!target.returnsUnit()) {                                        // If function returns more then "unit"
                 codegen.assignPhis(getResult() to value!!)                      // Assign return value to result PHI node.
             }
         }
@@ -1552,7 +1552,7 @@ internal class CodeGeneratorVisitor(val context: Context) : IrElementVisitorVoid
             val varargExpression = expression.getValueArgument(0) as? IrVararg
 
             if (varargExpression != null) {
-                // The selectFunction is kotlin.collections.listOf<T>(vararg args: T).
+                // The function is kotlin.collections.listOf<T>(vararg args: T).
                 // TODO: refer functions more reliably.
 
                 val vararg = args.single()
@@ -1563,7 +1563,7 @@ internal class CodeGeneratorVisitor(val context: Context) : IrElementVisitorVoid
                 val length = varargExpression.elements.size
                 // TODO: store length in `vararg` itself when more abstract types will be used for values.
 
-                // `elementType` is type argument of selectFunction return type:
+                // `elementType` is type argument of function return type:
                 val elementType = function.returnType!!.arguments.single()
 
                 val array = constPointer(vararg)
@@ -1727,7 +1727,7 @@ internal class CodeGeneratorVisitor(val context: Context) : IrElementVisitorVoid
         return if (caller.isSuspend)
             codegen.param(caller, caller.allParameters.size)    // The last argument.
         else {
-            // Suspend selectCall from non-suspend selectFunction - must be [CoroutineImpl].
+            // Suspend call from non-suspend function - must be [CoroutineImpl].
             assert (doResumeFunctionDescriptor in caller.overriddenDescriptors,
                     { "Expected 'CoroutineImpl.doResume' but was '$caller'" })
             currentCodeContext.genGetValue(caller.dispatchReceiverParameter!!)   // Coroutine itself is a continuation.
@@ -1738,7 +1738,7 @@ internal class CodeGeneratorVisitor(val context: Context) : IrElementVisitorVoid
 
     /**
      * Evaluates all arguments of [expression] that are explicitly represented in the IR.
-     * Returns results in the same order as LLVM selectFunction expects, assuming that all explicit arguments
+     * Returns results in the same order as LLVM function expects, assuming that all explicit arguments
      * exactly correspond to a tail of LLVM parameters.
      */
     private fun evaluateExplicitArgs(expression: IrMemberAccessExpression): List<LLVMValueRef> {
@@ -1756,7 +1756,7 @@ internal class CodeGeneratorVisitor(val context: Context) : IrElementVisitorVoid
     //-------------------------------------------------------------------------//
 
     private fun evaluateFunctionReference(expression: IrFunctionReference): LLVMValueRef {
-        // TODO: consider creating separate IR element for pointer to selectFunction.
+        // TODO: consider creating separate IR element for pointer to function.
         assert (TypeUtils.getClassDescriptor(expression.type) == context.interopBuiltIns.cPointer)
 
         assert (expression.getArguments().isEmpty())
@@ -2018,7 +2018,7 @@ internal class CodeGeneratorVisitor(val context: Context) : IrElementVisitorVoid
 
         val owner = descriptor.containingDeclaration as ClassDescriptor
         val llvmMethod = if (!owner.isInterface) {
-            // If this is a virtual method of the class - we can selectCall via vtable.
+            // If this is a virtual method of the class - we can call via vtable.
             val index = context.getVtableBuilder(owner).vtableIndex(descriptor)
 
             val vtablePlace = codegen.gep(typeInfoPtr, Int32(1).llvm) // typeInfoPtr + 1
@@ -2027,7 +2027,7 @@ internal class CodeGeneratorVisitor(val context: Context) : IrElementVisitorVoid
             val slot = codegen.gep(vtable, Int32(index).llvm)
             codegen.load(slot)
         } else {
-            // Otherwise, selectCall by hash.
+            // Otherwise, call by hash.
             // TODO: optimize by storing interface number in lower bits of 'this' pointer
             //       when passing object as an interface. This way we can use those bits as index
             //       for an additional per-interface vtable.
@@ -2114,7 +2114,7 @@ internal class CodeGeneratorVisitor(val context: Context) : IrElementVisitorVoid
         // be accounted for in the rootset. However, current object management
         // scheme for arguments guarantees, that reference is being held in C++
         // launcher, so we could optimize out creating slot for 'parameter' in
-        // this selectFunction.
+        // this function.
         val parameter = LLVMGetParam(selector, 0)!!
         codegen.callAtFunctionScope(entryPoint, listOf(parameter), Lifetime.IRRELEVANT)
 

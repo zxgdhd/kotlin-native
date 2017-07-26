@@ -57,9 +57,9 @@ internal class InlineConstructorsTransformation(val context: Context): IrElement
         val functionDescriptor = irCall.descriptor
         if (!functionDescriptor.annotations.hasAnnotation(inlineConstructor)) return irCall                                // This call does not need inlining.
 
-        val functionDeclaration = getFunctionDeclaration(irCall)                            // Get declaration of the selectFunction to be inlined.
+        val functionDeclaration = getFunctionDeclaration(irCall)                            // Get declaration of the function to be inlined.
         if (functionDeclaration == null) {                                                  // We failed to get the declaration.
-            val message = "Inliner failed to obtain selectFunction declaration: " +
+            val message = "Inliner failed to obtain function declaration: " +
                 functionDescriptor.fqNameSafe.toString()
             context.reportWarning(message, currentFile, irCall)                             // Report warning.
             return irCall
@@ -80,7 +80,7 @@ internal class InlineConstructorsTransformation(val context: Context): IrElement
         val functionDescriptor = irCall.descriptor
         val originalDescriptor = functionDescriptor.resolveFakeOverride().original
         val functionDeclaration =
-            context.ir.originalModuleIndex.functions[originalDescriptor] ?:                 // If selectFunction is declared in the current module.
+            context.ir.originalModuleIndex.functions[originalDescriptor] ?:                 // If function is declared in the current module.
                 deserializer.deserializeInlineBody(originalDescriptor)                      // Function is declared in another module.
         return functionDeclaration as IrFunction?
     }

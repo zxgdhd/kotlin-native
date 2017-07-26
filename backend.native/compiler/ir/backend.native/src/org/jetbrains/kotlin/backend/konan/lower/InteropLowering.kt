@@ -144,7 +144,7 @@ private class InteropTransformer(val context: Context, val irFile: IrFile) : IrB
 
                 if (irCallableReference == null || irCallableReference.getArguments().isNotEmpty()) {
                     context.reportCompilationError(
-                            "${descriptor.fqNameSafe} must take an unbound, non-capturing selectFunction or lambda",
+                            "${descriptor.fqNameSafe} must take an unbound, non-capturing function or lambda",
                             irFile, expression
                     )
                     // TODO: should probably be reported during analysis.
@@ -166,7 +166,7 @@ private class InteropTransformer(val context: Context, val irFile: IrFile) : IrB
                     val signatureType = signatureTypes[index]
                     if (typeArgument != signatureType) {
                         context.reportCompilationError(
-                                "C selectFunction signature element mismatch: expected '$signatureType', got '$typeArgument'",
+                                "C function signature element mismatch: expected '$signatureType', got '$typeArgument'",
                                 irFile, expression
                         )
                     }
@@ -184,7 +184,7 @@ private class InteropTransformer(val context: Context, val irFile: IrFile) : IrB
 
                 if (irCallableReference == null || irCallableReference.getArguments().isNotEmpty()) {
                     context.reportCompilationError(
-                            "${descriptor.fqNameSafe} must take an unbound, non-capturing selectFunction or lambda",
+                            "${descriptor.fqNameSafe} must take an unbound, non-capturing function or lambda",
                             irFile, expression
                     )
                 }

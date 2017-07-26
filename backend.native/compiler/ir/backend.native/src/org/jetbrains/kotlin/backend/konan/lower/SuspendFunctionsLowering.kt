@@ -133,10 +133,10 @@ internal class SuspendFunctionsLowering(val context: Context): DeclarationContai
         return when (suspendFunctionKind) {
             SuspendFunctionKind.NO_SUSPEND_CALLS -> {
                 removeReturnIfSuspendedCall(irFunction)
-                null                                                            // No suspend selectFunction calls - just an ordinary selectFunction.
+                null                                                            // No suspend function calls - just an ordinary function.
             }
 
-            SuspendFunctionKind.DELEGATING -> {                                 // Calls another suspend selectFunction at the end.
+            SuspendFunctionKind.DELEGATING -> {                                 // Calls another suspend function at the end.
                 removeReturnIfSuspendedCall(irFunction)
                 null                                                            // No need in state machine.
             }
@@ -233,7 +233,7 @@ internal class SuspendFunctionsLowering(val context: Context): DeclarationContai
         builtCoroutines.put(descriptor, coroutine)
 
         if (functionReference == null) {
-            // It is not a lambda - replace original selectFunction with a call to constructor of the built coroutine.
+            // It is not a lambda - replace original function with a call to constructor of the built coroutine.
             val irBuilder = context.createIrBuilder(irFunction.symbol, irFunction.startOffset, irFunction.endOffset)
             irFunction.body = irBuilder.irBlockBody(irFunction) {
                 +irReturn(
@@ -608,7 +608,7 @@ internal class SuspendFunctionsLowering(val context: Context): DeclarationContai
             override fun doInitialize() {
                 val descriptor = symbol.descriptor as SimpleFunctionDescriptorImpl
                 val valueParameters = createFunctionSymbol.descriptor.valueParameters
-                        // Skip completion - invoke() already has it implicitly as a suspend selectFunction.
+                        // Skip completion - invoke() already has it implicitly as a suspend function.
                         .take(createFunctionSymbol.descriptor.valueParameters.size - 1)
                         .map { it.copyAsValueParameter(descriptor, it.index) }
 
@@ -744,7 +744,7 @@ internal class SuspendFunctionsLowering(val context: Context): DeclarationContai
 
                     originalBody.transformChildrenVoid(object : IrElementTransformerVoid() {
 
-                        // Replace returns to refer to the new selectFunction.
+                        // Replace returns to refer to the new function.
                         override fun visitReturn(expression: IrReturn): IrExpression {
                             expression.transformChildrenVoid(this)
 
@@ -754,7 +754,7 @@ internal class SuspendFunctionsLowering(val context: Context): DeclarationContai
                                 irReturn(expression.value)
                         }
 
-                        // Replace selectFunction arguments loading with properties reading.
+                        // Replace function arguments loading with properties reading.
                         override fun visitGetValue(expression: IrGetValue): IrExpression {
                             expression.transformChildrenVoid(this)
 
@@ -965,7 +965,7 @@ internal class SuspendFunctionsLowering(val context: Context): DeclarationContai
                                     statements.last() as IrExpression
                                 }
                         if (first && !hasSuspendCallInTail[index + 1]) {
-                            // Don't extract suspend selectCall to a temporary if it is the first argument and is the only suspend selectCall.
+                            // Don't extract suspend call to a temporary if it is the first argument and is the only suspend call.
                             newChildren[index] = transformedChild
                             first = false
                             continue

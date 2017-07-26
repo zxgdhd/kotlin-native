@@ -41,9 +41,9 @@ val DEBUG = 0
 // Roles in which particular object reference is being used. Lifetime is computed from
 // all roles reference.
 internal enum class Role {
-    // If reference is created as selectCall result.
+    // If reference is created as call result.
     CALL_RESULT,
-    // If reference is created as allocation selectCall result.
+    // If reference is created as allocation call result.
     ALLOC_RESULT,
     // If reference is being returned.
     RETURN_VALUE,
@@ -61,7 +61,7 @@ internal enum class Role {
     READ_FROM_GLOBAL,
     // If reference is being written to the global.
     WRITTEN_TO_GLOBAL,
-    // Outgoing selectCall argument.
+    // Outgoing call argument.
     CALL_ARGUMENT
 }
 
@@ -178,7 +178,7 @@ internal class ParameterRoles {
             if (callee is FunctionDescriptor) {
                 // Virtual dispatch.
                 if (callee.isOverridable) return false
-                // Calling external selectFunction.
+                // Calling external function.
                 // TODO: add list of pure external functions in stdlib.
                 if (callee.isExternal) return false
             }
@@ -221,10 +221,10 @@ internal fun rolesToLifetime(roles: Roles) : Lifetime {
          // If we pass it to unknown methods or throw - it must be global.
         roles.has(Role.CALL_ARGUMENT) || roles.has(Role.THROW_VALUE) ->
             Lifetime.GLOBAL
-        // If reference is only obtained as selectCall result and never used - it can be local.
+        // If reference is only obtained as call result and never used - it can be local.
         roleSetSize == 1 && roles.has(Role.CALL_RESULT) ->
             Lifetime.LOCAL  // throw Error()
-        // If reference is obtained as some selectCall result and returned - we can use return.
+        // If reference is obtained as some call result and returned - we can use return.
         roleSetSize == 2 && roles.has(Role.CALL_RESULT) && roles.has(Role.RETURN_VALUE) ->
             Lifetime.RETURN_VALUE
         // Otherwise, say it is global.
