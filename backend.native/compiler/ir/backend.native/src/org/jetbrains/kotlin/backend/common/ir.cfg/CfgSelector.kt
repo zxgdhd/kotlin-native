@@ -8,6 +8,7 @@ import org.jetbrains.kotlin.backend.konan.Context
 import org.jetbrains.kotlin.backend.konan.ValueType
 import org.jetbrains.kotlin.backend.konan.correspondingValueType
 import org.jetbrains.kotlin.backend.konan.isValueType
+import org.jetbrains.kotlin.backend.konan.llvm.symbolName
 import org.jetbrains.kotlin.descriptors.CallableDescriptor
 import org.jetbrains.kotlin.descriptors.ClassDescriptor
 import org.jetbrains.kotlin.descriptors.ValueDescriptor
@@ -63,6 +64,14 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
     fun select() {
         context.irModule!!.accept(this, null)
         context.log { ir.log(); "" }
+
+//        CfgToBitcode(
+//                ir,
+//                context,
+//                declarations.functions.values.toList(),
+//                declarations.classes.values.toList(),
+//                funcDependencies
+//        )
     }
 
     //-------------------------------------------------------------------------//
@@ -256,6 +265,10 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
         val callee   = Constant(TypeFunction, funcName)
         val args     = irCall.getArguments().map { (_, expr) -> selectStatement(expr) }
         val uses     = (listOf(callee) + args) as MutableList<Operand>
+
+        if (irCall.descriptor !in declarations.functions.keys) {
+            funcDependencies += Function(funcName)
+        }
 
         val opcode = if (currentLandingBlock != null) {                                     // We're inside try block.
             currentBlock.addSuccessor(currentLandingBlock!!)
