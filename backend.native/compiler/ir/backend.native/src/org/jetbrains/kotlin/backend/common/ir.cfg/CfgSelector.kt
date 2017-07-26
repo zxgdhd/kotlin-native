@@ -222,10 +222,7 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
 
     //-------------------------------------------------------------------------//
 
-    private fun selectImplicitCast(statement: IrTypeOperatorCall): Operand {
-        println("ERROR: Not implemented yet: selectImplicitCast")
-        return Variable(Type.int, "invalid")
-    }
+    private fun selectImplicitCast(statement: IrTypeOperatorCall): Operand = selectStatement(statement.argument)
 
     //-------------------------------------------------------------------------//
 
