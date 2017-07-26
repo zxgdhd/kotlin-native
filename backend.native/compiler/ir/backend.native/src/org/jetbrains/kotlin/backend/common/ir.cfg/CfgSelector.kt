@@ -189,8 +189,8 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
     //-------------------------------------------------------------------------//
 
     private fun selectCoercionToUnit(statement: IrTypeOperatorCall): Operand {
-        println("Not implemented yet: selectCoercionToUnit")
-        return Variable(Type.int, "invalid")
+        selectStatement(statement.argument)
+        return CfgNull
     }
 
     //-------------------------------------------------------------------------//
@@ -517,8 +517,8 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
     private fun IrCall.isIntrinsic(): Boolean {
         if (!descriptor.isOperator)                           return false
         if (!intrinsics.contains(descriptor.name.toString())) return false
-        val complexTypeArgs = getArguments().find { !it.second.type.isValueType() }
-        if (complexTypeArgs != null)                          return false
+        val complexTypeArg = getArguments().find { !it.second.type.isValueType() }
+        if (complexTypeArg != null)                           return false
         return true
     }
 
