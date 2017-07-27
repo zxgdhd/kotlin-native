@@ -296,7 +296,7 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
 
         val opcode = if (currentLandingBlock != null) {                                     // We're inside try block.
             currentBlock.addSuccessor(currentLandingBlock!!)
-            uses += Constant(TypeBlock, currentLandingBlock)
+            uses += Constant(TypeBlock, currentLandingBlock!!)
             Opcode.invoke
         } else {
             Opcode.call
