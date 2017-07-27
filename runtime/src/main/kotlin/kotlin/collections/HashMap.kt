@@ -218,7 +218,7 @@ class HashMap<K, V> private constructor(
             hashArray = IntArray(newHashSize)
             hashShift = computeShift(newHashSize)
         } else {
-            hashArray.fill(0, 0, hashSize)
+            hashArray.fill(0, hashSize, 0)
         }
         var i = 0
         while (i < length) {
