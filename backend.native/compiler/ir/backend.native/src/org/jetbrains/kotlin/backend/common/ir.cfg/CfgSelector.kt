@@ -574,6 +574,16 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
 
     //-------------------------------------------------------------------------//
 
+//    private fun inst(opcode: Opcode, target: Block): Operand
+//        = currentBlock.instruction(opcode, def, *uses).defs[0]
+
+    //-------------------------------------------------------------------------//
+
+    private fun inst(opcode: Opcode, def: Variable, vararg uses: Operand): Operand
+        = currentBlock.instruction(opcode, def, *uses).defs[0]
+
+    //-------------------------------------------------------------------------//
+
     private fun inst(opcode: Opcode, defType: Type, vararg uses: Operand): Operand {
         if (defType == TypeUnit) {
             currentBlock.instruction(opcode, *uses)
