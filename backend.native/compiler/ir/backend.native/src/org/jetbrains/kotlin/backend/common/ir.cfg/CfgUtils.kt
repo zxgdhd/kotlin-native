@@ -16,17 +16,6 @@ fun Instruction.addDef(operand: Variable) { operand.addDef(this); defs.add(opera
 
 //--- Block -------------------------------------------------------------------//
 
-fun Block.addInstruction(instruction: Instruction) { instructions.add(instruction) }
-
-//-----------------------------------------------------------------------------//
-
-fun Block.addPredecessor(predecessor: Block) {
-    predecessors.add(predecessor)
-    predecessor.successors.add(this)
-}
-
-//-----------------------------------------------------------------------------//
-
 fun Block.addSuccessor(successor: Block) {
     successors.add(successor)
     successor.predecessors.add(this)
@@ -34,16 +23,9 @@ fun Block.addSuccessor(successor: Block) {
 
 //-----------------------------------------------------------------------------//
 
-fun Block.instruction(opcode: Opcode): Instruction {
-    val instruction = Instruction(opcode)
-    addInstruction(instruction)
-    return instruction
-}
-
-//-----------------------------------------------------------------------------//
-
 fun Block.instruction(opcode: Opcode, vararg uses: Operand): Instruction {
-    val instruction = instruction(opcode)
+    val instruction = Instruction(opcode)
+    instructions.add(instruction)
     uses.forEach(instruction::addUse)
     return instruction
 }
@@ -51,21 +33,11 @@ fun Block.instruction(opcode: Opcode, vararg uses: Operand): Instruction {
 //-----------------------------------------------------------------------------//
 
 fun Block.instruction(opcode: Opcode, def: Variable, vararg uses: Operand): Instruction {
-
-    val instruction = instruction(opcode)
+    val instruction = Instruction(opcode)
+    instructions.add(instruction)
     uses.forEach(instruction::addUse)
     instruction.addDef(def)
     return instruction
-}
-
-//-----------------------------------------------------------------------------//
-
-fun Block.cmp(def: Variable, use1: Operand, use2: Operand) {
-
-    val instruction = instruction(Opcode.cmp)
-    instruction.addUse(use1)
-    instruction.addUse(use2)
-    instruction.addDef(def)
 }
 
 //-----------------------------------------------------------------------------//
@@ -110,16 +82,16 @@ fun Block.condBr(condition: Operand, targetTrue: Block, targetFalse: Block) {
 
 //-----------------------------------------------------------------------------//
 
-fun Block.isLastInstructionTerminal(): Boolean
-    = instructions.isNotEmpty() && instructions.last().opcode.isTerminal()
-
-//-----------------------------------------------------------------------------//
-
 fun Block.invoke(def: Variable?, vararg uses: Operand) {
     val inst = instruction(Opcode.invoke)
     uses.forEach(inst::addUse)
     if (def != null) inst.addDef(def)
 }
+
+//-----------------------------------------------------------------------------//
+
+fun Block.isLastInstructionTerminal(): Boolean
+    = instructions.isNotEmpty() && instructions.last().opcode.isTerminal()
 
 //--- Function ----------------------------------------------------------------//
 
@@ -133,10 +105,10 @@ fun Ir.addFunction(function: Function) { functions[function.name] = function }
 
 //--- Utilities ---------------------------------------------------------------//
 
-// TODO: add argument to the opcode?
 fun Opcode.isTerminal() = this == Opcode.br || this == Opcode.ret || this == Opcode.invoke || this == Opcode.resume
 
 //-----------------------------------------------------------------------------//
+// Build direct-ordered list of blocks in graph starting with "enter" block
 
 fun search(enter: Block): List<Block> {
     val result  = mutableListOf<Block>()

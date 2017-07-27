@@ -565,7 +565,8 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
 
     //-------------------------------------------------------------------------//
 
-    private fun newVariable(type: Type) = Variable(type, currentFunction.genVariableName())
+    private fun newVariable(type: Type, name: String = currentFunction.genVariableName())
+        = Variable(type, name)
 
     //-------------------------------------------------------------------------//
 
