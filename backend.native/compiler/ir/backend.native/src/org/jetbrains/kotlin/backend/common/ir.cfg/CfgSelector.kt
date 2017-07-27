@@ -50,11 +50,11 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
     private val loopStack   = mutableListOf<LoopLabels>()
 
     private val operatorToOpcode = mutableMapOf(
-            OperatorNameConventions.PLUS to Opcode.add,
+            OperatorNameConventions.PLUS  to Opcode.add,
             OperatorNameConventions.MINUS to Opcode.sub,
             OperatorNameConventions.TIMES to Opcode.mul,
-            OperatorNameConventions.DIV to Opcode.sdiv,
-            OperatorNameConventions.MOD to Opcode.srem
+            OperatorNameConventions.DIV   to Opcode.sdiv,
+            OperatorNameConventions.MOD   to Opcode.srem
     )
 
     private data class LoopLabels(val loop: IrLoop, val check: Block, val exit: Block)
@@ -72,7 +72,7 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
         val klass = declarations.classes[declaration.descriptor]
         if (klass != null) {
             currentClass = klass
-            ir.newKlass(klass)
+            ir.addKlass(klass)
             declaration.declarations.forEach {
                 it.acceptVoid(this)
             }
@@ -107,7 +107,7 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
         if (currentClass != null) {
             currentClass!!.methods += currentFunction
         }
-        ir.newFunction(currentFunction)
+        ir.addFunction(currentFunction)
 
         irFunction.valueParameters
             .map {

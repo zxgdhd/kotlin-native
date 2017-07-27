@@ -62,16 +62,7 @@ class Klass(val name: String) {
 //-----------------------------------------------------------------------------//
 
 class Ir {
-    val functions  = mutableMapOf<String, Function>()
-    val klasses    = mutableMapOf<String, Klass>()
-
-    fun newFunction(function: Function) {
-        functions[function.name] = function
-    }
-
-    fun newKlass(klass: Klass) {
-        klasses[klass.name] = klass
-    }
+    val functions = mutableMapOf<String, Function>()
+    val klasses   = mutableMapOf<String, Klass>()
+    val globals   = mutableMapOf<String, Operand>()
 }
-
-

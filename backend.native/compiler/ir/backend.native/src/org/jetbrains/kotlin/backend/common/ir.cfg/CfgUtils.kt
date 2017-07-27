@@ -2,7 +2,7 @@ package org.jetbrains.kotlin.backend.common.ir.cfg
 
 //-----------------------------------------------------------------------------//
 
-val CfgNull      = Constant(TypeUnit, "null")
+val CfgNull = Constant(TypeUnit, "null")
 
 //--- Operand -----------------------------------------------------------------//
 
@@ -125,6 +125,11 @@ fun Block.invoke(def: Variable?, vararg uses: Operand) {
 
 fun Function.newBlock(name: String = "block") = Block(genBlockName(name))
 fun Function.addValueParameters(parameters: List<Variable>) { this.parameters.addAll(parameters) }
+
+//--- Ir ----------------------------------------------------------------------//
+
+fun Ir.addKlass(klass: Klass)          { klasses[klass.name] = klass }
+fun Ir.addFunction(function: Function) { functions[function.name] = function }
 
 //--- Utilities ---------------------------------------------------------------//
 
