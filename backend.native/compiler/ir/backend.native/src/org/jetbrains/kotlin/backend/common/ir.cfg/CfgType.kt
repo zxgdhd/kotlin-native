@@ -23,6 +23,7 @@ sealed class Type {
 val TypeUnit     = Type.ptr("unit")             // Invalid pointer
 val TypeString   = Type.ptr("string")           // Pointer to string constant
 val TypeFunction = Type.ptr("function")         // Pointer to function
+val TypeField    = Type.ptr("field")            //
 val TypeBlock    = Type.ptr("block")            // Pointer to basic block
 val TypePtr      = Type.ptr("ptr")              // Pointer to any object we know nothing about
 
