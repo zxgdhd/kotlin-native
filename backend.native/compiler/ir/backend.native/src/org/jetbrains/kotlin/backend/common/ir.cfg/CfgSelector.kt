@@ -1,6 +1,7 @@
 package org.jetbrains.kotlin.backend.common.ir.cfg
 
 
+import org.jetbrains.kotlin.backend.common.descriptors.allParameters
 import org.jetbrains.kotlin.backend.common.descriptors.isSuspend
 import org.jetbrains.kotlin.backend.common.pop
 import org.jetbrains.kotlin.backend.common.push
@@ -22,7 +23,6 @@ import org.jetbrains.kotlin.ir.expressions.*
 import org.jetbrains.kotlin.ir.symbols.IrValueSymbol
 import org.jetbrains.kotlin.ir.symbols.IrVariableSymbol
 import org.jetbrains.kotlin.ir.util.getArguments
-import org.jetbrains.kotlin.ir.util.type
 import org.jetbrains.kotlin.ir.visitors.IrElementVisitorVoid
 import org.jetbrains.kotlin.ir.visitors.acceptVoid
 import org.jetbrains.kotlin.resolve.descriptorUtil.fqNameSafe
@@ -46,6 +46,11 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
     private var currentLandingBlock: Block? = null
     private var currentClass: Klass?        = null
 
+    private val globalInitFunction: Function = Function("global-init").also {
+        ir.addFunction(it)
+    }
+    private var currentGlobalInitBlock: Block = globalInitFunction.enter
+
     private val variableMap = mutableMapOf<ValueDescriptor, Operand>()
     private val loopStack   = mutableListOf<LoopLabels>()
 
@@ -61,8 +66,20 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
 
     //-------------------------------------------------------------------------//
 
+    private fun withBlock(block: Block, body: () -> Unit) : Block {
+        val oldCurrent = currentBlock
+        currentBlock = block
+        body()
+        val result = currentBlock
+        currentBlock = oldCurrent
+        return result
+    }
+
+    //-------------------------------------------------------------------------//
+
     fun select() {
-        context.irModule!!.accept(this, null)
+        context.irModule!!.acceptVoid(this)
+        currentGlobalInitBlock.ret()
         context.log { ir.log(); "" }
     }
 
@@ -83,13 +100,23 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
     //-------------------------------------------------------------------------//
 
     override fun visitField(declaration: IrField) {
-        currentClass?.let {
-            val type = declaration.symbol.descriptor.type.toCfgType()
-            val name = declaration.symbol.descriptor.fqNameSafe.asString()
-            declaration.initializer?.expression?.let {
-                selectStatement(it)
+        val currentClass = currentClass
+        val descriptor = declaration.descriptor
+        val type = descriptor.type.toCfgType()
+        val name = descriptor.fqNameSafe.asString()
+
+        if (currentClass != null) {
+            // class field
+            currentClass.fields += Variable(type, name)
+            // Field initializer was moved into constructor by Init lowering.
+        } else {
+            // "Global" field
+            currentGlobalInitBlock = withBlock(currentGlobalInitBlock) {
+                declaration.initializer?.expression?.let {
+                    val initializer = selectStatement(it)
+                    inst(Opcode.gstore, TypeUnit, Constant(TypeField, declaration.descriptor.toCfgName()), initializer)
+                }
             }
-            it.fields += Variable(type, name)
         }
     }
 
@@ -109,10 +136,10 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
         }
         ir.addFunction(currentFunction)
 
-        irFunction.valueParameters
+        irFunction.descriptor.allParameters
             .map {
-                val variable = Variable(it.type.toCfgType(), it.descriptor.name.asString())
-                variableMap[it.descriptor] = variable
+                val variable = Variable(it.type.toCfgType(), it.name.asString())
+                variableMap[it] = variable
                 variable
             }.let(currentFunction::addValueParameters)
 
@@ -133,28 +160,62 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
 
     private fun selectStatement(statement: IrStatement): Operand =
         when (statement) {
-            is IrTypeOperatorCall    -> selectTypeOperatorCall   (statement)
-            is IrCall                -> selectCall               (statement)
-            is IrContainerExpression -> selectContainerExpression(statement)
-            is IrConst<*>            -> selectConst              (statement)
-            is IrWhileLoop           -> selectWhileLoop          (statement)
-            is IrBreak               -> selectBreak              (statement)
-            is IrContinue            -> selectContinue           (statement)
-            is IrReturn              -> selectReturn             (statement)
-            is IrWhen                -> selectWhen               (statement)
-            is IrSetVariable         -> selectSetVariable        (statement)
-            is IrVariable            -> selectVariable           (statement)
-            is IrVariableSymbol      -> selectVariableSymbol     (statement)
-            is IrValueSymbol         -> selectValueSymbol        (statement)
-            is IrGetValue            -> selectGetValue           (statement)
-            is IrVararg              -> selectVararg             (statement)
-            is IrThrow               -> selectThrow              (statement)
-            is IrTry                 -> selectTry                (statement)
+            is IrTypeOperatorCall          -> selectTypeOperatorCall   (statement)
+            is IrCall                      -> selectCall               (statement)
+            is IrContainerExpression       -> selectContainerExpression(statement)
+            is IrConst<*>                  -> selectConst              (statement)
+            is IrWhileLoop                 -> selectWhileLoop          (statement)
+            is IrDoWhileLoop               -> selectDoWhileLoop        (statement)
+            is IrBreak                     -> selectBreak              (statement)
+            is IrContinue                  -> selectContinue           (statement)
+            is IrReturn                    -> selectReturn             (statement)
+            is IrWhen                      -> selectWhen               (statement)
+            is IrSetVariable               -> selectSetVariable        (statement)
+            is IrVariable                  -> selectVariable           (statement)
+            is IrVariableSymbol            -> selectVariableSymbol     (statement)
+            is IrValueSymbol               -> selectValueSymbol        (statement)
+            is IrGetValue                  -> selectGetValue           (statement)
+            is IrVararg                    -> selectVararg             (statement)
+            is IrThrow                     -> selectThrow              (statement)
+            is IrTry                       -> selectTry                (statement)
+            is IrGetField                  -> selectGetField           (statement)
+            is IrSetField                  -> selectSetField           (statement)
+
             else -> {
                 println("ERROR: Not implemented yet: $statement")
                 CfgNull
             }
         }
+
+    //-------------------------------------------------------------------------//
+
+    private fun selectGetField(statement: IrGetField): Operand {
+        // TODO: Use another opcode?
+        val receiver = statement.receiver
+        val fieldPtr = Constant(TypeField, statement.descriptor.toCfgName())
+        return if (receiver != null) {
+            val thisPtr = selectStatement(receiver)
+            // TODO: maybe use symbols instead of descriptors?
+            // TODO: Use special methods for instruction emitting.
+            inst(Opcode.load, statement.type.toCfgType(), thisPtr, fieldPtr)
+        } else {
+            inst(Opcode.gload, statement.type.toCfgType(), fieldPtr)
+        }
+    }
+
+    //-------------------------------------------------------------------------//
+
+    private fun selectSetField(statement: IrSetField): Operand {
+        val receiver = statement.receiver
+        val value = selectStatement(statement.value)
+        val fieldPtr = Constant(TypeField, statement.descriptor.toCfgName())
+        return if (receiver != null) {
+            val thisPtr = selectStatement(receiver)
+            inst(Opcode.store, TypeUnit, thisPtr, fieldPtr, value)
+        } else {
+            inst(Opcode.gstore, TypeUnit, fieldPtr, value)
+        }
+    }
 
     //-------------------------------------------------------------------------//
 
@@ -227,7 +288,7 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
     //-------------------------------------------------------------------------//
 
     private fun selectImplicitNotNull(statement: IrTypeOperatorCall): Operand {
-        println("ERROR: Not implemented yet: selectImplicitNotNull")
+        println("ERROR: Not implemented yet: selectImplicitNotNull") // Also it's not implemented in IrToBitcode.
         return Variable(Type.int, "invalid")
     }
 
@@ -333,7 +394,7 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
 
         loopStack.push(LoopLabels(irWhileLoop, loopCheck, loopExit))
 
-        currentBlock.addSuccessor(loopCheck)
+        currentBlock.br(loopCheck)
         currentBlock = loopCheck
         currentBlock.condBr(selectStatement(irWhileLoop.condition), loopBody, loopExit)
 
@@ -341,6 +402,30 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
         irWhileLoop.body?.let { selectStatement(it) }
         if (!currentBlock.isLastInstructionTerminal())
             currentBlock.br(loopCheck)
+
+        loopStack.pop()
+        currentBlock = loopExit
+        return CfgNull
+    }
+
+    //-------------------------------------------------------------------------//
+
+    private fun selectDoWhileLoop(loop: IrDoWhileLoop): Operand {
+        val loopCheck = newBlock("loop_check")
+        val loopBody = newBlock("loop_body")
+        val loopExit = newBlock("loop_exit")
+
+        loopStack.push(LoopLabels(loop, loopCheck, loopExit))
+
+        currentBlock.br(loopBody)
+        currentBlock = loopBody
+        loop.body?.let { selectStatement(it) }
+        if (!currentBlock.isLastInstructionTerminal()) {
+            currentBlock.br(loopCheck)
+        }
+
+        currentBlock = loopCheck
+        currentBlock.condBr(selectStatement(loop.condition), loopBody, loopExit)
 
         loopStack.pop()
         currentBlock = loopExit
