@@ -8,6 +8,7 @@ import org.jetbrains.kotlin.backend.konan.Context
 import org.jetbrains.kotlin.backend.konan.ValueType
 import org.jetbrains.kotlin.backend.konan.correspondingValueType
 import org.jetbrains.kotlin.backend.konan.isValueType
+import org.jetbrains.kotlin.builtins.KotlinBuiltIns
 import org.jetbrains.kotlin.descriptors.CallableDescriptor
 import org.jetbrains.kotlin.descriptors.ClassDescriptor
 import org.jetbrains.kotlin.descriptors.ValueDescriptor
@@ -195,17 +196,33 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
 
     //-------------------------------------------------------------------------//
 
-    private fun selectIntegerCoercion(statement: IrTypeOperatorCall): Operand {
-        println("ERROR: Not implemented yet: selectIntegerCoercion")
-        return Variable(Type.int, "invalid")
+    private fun KotlinType.isPrimitiveInteger(): Boolean {
+        return isPrimitiveNumberType() &&
+                !KotlinBuiltIns.isFloat(this) &&
+                !KotlinBuiltIns.isDouble(this) &&
+                !KotlinBuiltIns.isChar(this)
     }
 
     //-------------------------------------------------------------------------//
 
-    private fun selectImplicitCast(statement: IrTypeOperatorCall): Operand {
-        println("ERROR: Not implemented yet: selectImplicitCast")
-        return Variable(Type.int, "invalid")
+    private fun selectIntegerCoercion(statement: IrTypeOperatorCall): Operand {
+        val type = statement.typeOperand
+        assert(type.isPrimitiveInteger())
+        val result = selectStatement(statement.argument)
+        val srcType = result.type
+        val dstType = type.toCfgType()
+        val srcWidth = srcType.byteSize
+        val dstWidth = dstType.byteSize
+        return when {
+            srcWidth == dstWidth           -> result
+            srcWidth > dstWidth            -> inst(Opcode.trunc, dstType, result)
+            else /* srcWidth < dstWidth */ -> inst(Opcode.sext, dstType, result)
+        }
     }
+
+    //-------------------------------------------------------------------------//
+
+    private fun selectImplicitCast(statement: IrTypeOperatorCall): Operand = selectStatement(statement.argument)
 
     //-------------------------------------------------------------------------//
 
@@ -272,6 +289,10 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
         val callee   = Constant(TypeFunction, funcName)
         val args     = irCall.getArguments().map { (_, expr) -> selectStatement(expr) }
         val uses     = (listOf(callee) + args) as MutableList<Operand>
+
+        if (irCall.descriptor !in declarations.functions.keys) {
+            funcDependencies += Function(funcName)
+        }
 
         val opcode = if (currentLandingBlock != null) {                                     // We're inside try block.
             currentBlock.addSuccessor(currentLandingBlock!!)
