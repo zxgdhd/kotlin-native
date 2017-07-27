@@ -2,11 +2,6 @@ package org.jetbrains.kotlin.backend.common.ir.cfg
 
 //-----------------------------------------------------------------------------//
 
-val TypeUnit     = Type.ptr("unit")
-val TypeString   = Type.ptr("string")
-val TypeFunction = Type.ptr("function")
-val TypeBlock    = Type.ptr("block")
-val TypePtr      = Type.ptr("ptr")
 val CfgNull      = Constant(TypeUnit, "null")
 
 //--- Operand -----------------------------------------------------------------//
