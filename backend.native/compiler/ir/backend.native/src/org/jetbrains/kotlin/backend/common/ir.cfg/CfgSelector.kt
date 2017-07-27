@@ -23,9 +23,7 @@ import org.jetbrains.kotlin.ir.expressions.*
 import org.jetbrains.kotlin.ir.symbols.IrValueSymbol
 import org.jetbrains.kotlin.ir.symbols.IrVariableSymbol
 import org.jetbrains.kotlin.ir.util.getArguments
-import org.jetbrains.kotlin.ir.util.type
 import org.jetbrains.kotlin.ir.visitors.IrElementVisitorVoid
-import org.jetbrains.kotlin.ir.visitors.acceptChildrenVoid
 import org.jetbrains.kotlin.ir.visitors.acceptVoid
 import org.jetbrains.kotlin.resolve.descriptorUtil.fqNameSafe
 import org.jetbrains.kotlin.types.KotlinType
@@ -48,6 +46,11 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
     private var currentLandingBlock: Block? = null
     private var currentClass: Klass?        = null
 
+    private val globalInitFunction: Function = Function("global-init").also {
+        ir.addFunction(it)
+    }
+    private var currentGlobalInitBlock: Block = globalInitFunction.enter
+
     private val variableMap = mutableMapOf<ValueDescriptor, Operand>()
     private val loopStack   = mutableListOf<LoopLabels>()
 
@@ -63,8 +66,20 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
 
     //-------------------------------------------------------------------------//
 
+    private fun withBlock(block: Block, body: () -> Unit) : Block {
+        val oldCurrent = currentBlock
+        currentBlock = block
+        body()
+        val result = currentBlock
+        currentBlock = oldCurrent
+        return result
+    }
+
+    //-------------------------------------------------------------------------//
+
     fun select() {
         context.irModule!!.acceptVoid(this)
+        currentGlobalInitBlock.ret()
         context.log { ir.log(); "" }
     }
 
@@ -90,16 +105,18 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
         val type = descriptor.type.toCfgType()
         val name = descriptor.fqNameSafe.asString()
 
-        // TODO: What about this?
-        //val initializer = declaration.initializer?.expression?.let { selectStatement(it) }
-
         if (currentClass != null) {
             // class field
             currentClass.fields += Variable(type, name)
+            // Field initializer was moved into constructor by Init lowering.
         } else {
-            // non-class ("static") field == global variable
-            assert(descriptor !in variableMap)
-            variableMap[descriptor] = Variable(type, name)
+            // "Global" field
+            currentGlobalInitBlock = withBlock(currentGlobalInitBlock) {
+                declaration.initializer?.expression?.let {
+                    val initializer = selectStatement(it)
+                    inst(Opcode.gstore, TypeUnit, Constant(TypeField, declaration.descriptor.toCfgName()), initializer)
+                }
+            }
         }
     }
 
@@ -175,16 +192,14 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
     private fun selectGetField(statement: IrGetField): Operand {
         // TODO: Use another opcode?
         val receiver = statement.receiver
-        if (receiver != null) {
+        val fieldPtr = Constant(TypeField, statement.descriptor.toCfgName())
+        return if (receiver != null) {
             val thisPtr = selectStatement(receiver)
             // TODO: maybe use symbols instead of descriptors?
-            return inst(Opcode.load,
-                    statement.type.toCfgType(),
-                    thisPtr,
-                    Constant(TypeField, statement.descriptor.toCfgName()))
+            // TODO: Use special methods for instruction emitting.
+            inst(Opcode.load, statement.type.toCfgType(), thisPtr, fieldPtr)
         } else {
-            return variableMap[statement.descriptor]
-                    ?: throw AssertionError("No variable for descriptor: ${statement.descriptor}")
+            inst(Opcode.gload, statement.type.toCfgType(), fieldPtr)
         }
     }
 
@@ -193,18 +208,12 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
     private fun selectSetField(statement: IrSetField): Operand {
         val receiver = statement.receiver
         val value = selectStatement(statement.value)
-        if (receiver != null) {
+        val fieldPtr = Constant(TypeField, statement.descriptor.toCfgName())
+        return if (receiver != null) {
             val thisPtr = selectStatement(receiver)
-            return inst(Opcode.store,
-                    TypeUnit,
-                    thisPtr,
-                    Constant(TypeField, statement.descriptor.toCfgName()),
-                    value)
+            inst(Opcode.store, TypeUnit, thisPtr, fieldPtr, value)
         } else {
-            val target = variableMap[statement.descriptor] as? Variable
-                    ?: throw AssertionError("No variable for descriptor: ${statement.descriptor}")
-            currentBlock.mov(target, value)
-            return CfgNull
+            inst(Opcode.gstore, TypeUnit, fieldPtr, value)
         }
     }
 

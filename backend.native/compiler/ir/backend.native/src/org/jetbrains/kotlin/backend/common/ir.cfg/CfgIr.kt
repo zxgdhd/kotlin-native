@@ -64,5 +64,4 @@ class Klass(val name: String) {
 class Ir {
     val functions = mutableMapOf<String, Function>()                           // Functions defined in current compilation module.
     val klasses   = mutableMapOf<String, Klass>()                              // Classes defined in current compilation module.
-    val globals   = mutableMapOf<String, Operand>()                            // Global properties having backing fields.
 }

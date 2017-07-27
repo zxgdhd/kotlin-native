@@ -58,6 +58,10 @@ fun Block.ret(use: Operand) {
 
 //-----------------------------------------------------------------------------//
 
+fun Block.ret() = instruction(Opcode.ret)
+
+//-----------------------------------------------------------------------------//
+
 fun Block.br(target: Block) {
     val instruction   = instruction(Opcode.br)
     val targetOperand = Constant(TypeBlock, target)

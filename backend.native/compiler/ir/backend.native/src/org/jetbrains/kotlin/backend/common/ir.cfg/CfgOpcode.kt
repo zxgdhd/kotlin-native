@@ -38,6 +38,8 @@ enum class Opcode {
     alloca,                 // Memory access and addressing operations
     load,
     store,
+    gload,  // load global field
+    gstore, // store global field
     fence,
     cmpxchg,
     atomicrmw,
