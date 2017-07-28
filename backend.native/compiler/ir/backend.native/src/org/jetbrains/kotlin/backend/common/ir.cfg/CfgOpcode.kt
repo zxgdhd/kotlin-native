@@ -35,6 +35,7 @@ enum class Opcode {
     extractvalue,           // Aggregate operations
     insertvalue,
 
+    alloc,  // allocate an object
     alloca,                 // Memory access and addressing operations
     load,
     store,

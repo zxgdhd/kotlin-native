@@ -10,9 +10,7 @@ import org.jetbrains.kotlin.backend.konan.ValueType
 import org.jetbrains.kotlin.backend.konan.correspondingValueType
 import org.jetbrains.kotlin.backend.konan.isValueType
 import org.jetbrains.kotlin.builtins.KotlinBuiltIns
-import org.jetbrains.kotlin.descriptors.CallableDescriptor
-import org.jetbrains.kotlin.descriptors.ClassDescriptor
-import org.jetbrains.kotlin.descriptors.ValueDescriptor
+import org.jetbrains.kotlin.descriptors.*
 import org.jetbrains.kotlin.ir.IrElement
 import org.jetbrains.kotlin.ir.IrStatement
 import org.jetbrains.kotlin.ir.declarations.*
@@ -159,26 +157,27 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
 
     private fun selectStatement(statement: IrStatement): Operand =
         when (statement) {
-            is IrTypeOperatorCall          -> selectTypeOperatorCall   (statement)
-            is IrCall                      -> selectCall               (statement)
-            is IrContainerExpression       -> selectContainerExpression(statement)
-            is IrConst<*>                  -> selectConst              (statement)
-            is IrWhileLoop                 -> selectWhileLoop          (statement)
-            is IrDoWhileLoop               -> selectDoWhileLoop        (statement)
-            is IrBreak                     -> selectBreak              (statement)
-            is IrContinue                  -> selectContinue           (statement)
-            is IrReturn                    -> selectReturn             (statement)
-            is IrWhen                      -> selectWhen               (statement)
-            is IrSetVariable               -> selectSetVariable        (statement)
-            is IrVariable                  -> selectVariable           (statement)
-            is IrVariableSymbol            -> selectVariableSymbol     (statement)
-            is IrValueSymbol               -> selectValueSymbol        (statement)
-            is IrGetValue                  -> selectGetValue           (statement)
-            is IrVararg                    -> selectVararg             (statement)
-            is IrThrow                     -> selectThrow              (statement)
-            is IrTry                       -> selectTry                (statement)
-            is IrGetField                  -> selectGetField           (statement)
-            is IrSetField                  -> selectSetField           (statement)
+            is IrTypeOperatorCall          -> selectTypeOperatorCall         (statement)
+            is IrCall                      -> selectCall                     (statement)
+            is IrDelegatingConstructorCall -> selectDelegatingConstructorCall(statement)
+            is IrContainerExpression       -> selectContainerExpression      (statement)
+            is IrConst<*>                  -> selectConst                    (statement)
+            is IrWhileLoop                 -> selectWhileLoop                (statement)
+            is IrDoWhileLoop               -> selectDoWhileLoop              (statement)
+            is IrBreak                     -> selectBreak                    (statement)
+            is IrContinue                  -> selectContinue                 (statement)
+            is IrReturn                    -> selectReturn                   (statement)
+            is IrWhen                      -> selectWhen                     (statement)
+            is IrSetVariable               -> selectSetVariable              (statement)
+            is IrVariable                  -> selectVariable                 (statement)
+            is IrVariableSymbol            -> selectVariableSymbol           (statement)
+            is IrValueSymbol               -> selectValueSymbol              (statement)
+            is IrGetValue                  -> selectGetValue                 (statement)
+            is IrVararg                    -> selectVararg                   (statement)
+            is IrThrow                     -> selectThrow                    (statement)
+            is IrTry                       -> selectTry                      (statement)
+            is IrGetField                  -> selectGetField                 (statement)
+            is IrSetField                  -> selectSetField                 (statement)
 
             else -> {
                 println("ERROR: Not implemented yet: $statement")
@@ -335,22 +334,49 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
     //-------------------------------------------------------------------------//
 
     private fun selectCall(irCall: IrCall): Operand {
-        return if (irCall.hasOpcode()) {
-            selectOperator(irCall)
-        } else {
-            generateCall(irCall)
+        return when {
+            irCall.hasOpcode() -> selectOperator(irCall)
+            irCall.descriptor is ConstructorDescriptor -> selectConstructorCall(irCall)
+            else -> {
+                val args = irCall.getArguments().map { (_, expr) -> selectStatement(expr) }
+                generateCall(irCall.descriptor, irCall.type.toCfgType(), args)
+            }
         }
     }
 
     //-------------------------------------------------------------------------//
 
-    private fun generateCall(irCall: IrCall): Operand {
-        val funcName = irCall.descriptor.toCfgName()
+    private fun selectConstructorCall(irCall: IrCall) : Operand {
+        assert(irCall.descriptor is ConstructorDescriptor)
+        // allocate memory for the instance
+        // call init
+        val descriptor = irCall.descriptor as ConstructorDescriptor
+        val constructedClass = descriptor.constructedClass
+        val typePtr = Constant(TypeClass, constructedClass.toCfgName())
+        val objPtr = inst(Opcode.alloc, irCall.type.toCfgType(), typePtr)
+        val args = mutableListOf(objPtr).apply {
+            irCall.getArguments().mapTo(this) { (_, expr) -> selectStatement(expr) }
+        }
+        return generateCall(irCall.descriptor, irCall.type.toCfgType(), args)
+    }
+
+    //-------------------------------------------------------------------------//
+
+    private fun selectDelegatingConstructorCall(irCall: IrDelegatingConstructorCall): Operand {
+        val args = mutableListOf<Operand>(currentFunction.parameters[0]).apply {
+            irCall.getArguments().mapTo(this) { (_, expr) -> selectStatement(expr) }
+        }
+        return generateCall(irCall.descriptor, irCall.type.toCfgType(), args)
+    }
+
+    //-------------------------------------------------------------------------//
+
+    private fun generateCall(descriptor: MemberDescriptor, type: Type, args: List<Operand>): Operand {
+        val funcName = descriptor.toCfgName()
         val callee   = Constant(TypeFunction, funcName)
-        val args     = irCall.getArguments().map { (_, expr) -> selectStatement(expr) }
         val uses     = (listOf(callee) + args) as MutableList<Operand>
 
-        if (irCall.descriptor !in declarations.functions.keys) {
+        if (descriptor !in declarations.functions.keys) {
             funcDependencies += Function(funcName)
         }
 
@@ -361,7 +387,7 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
         } else {
             Opcode.call
         }
-        return inst(opcode, irCall.type.toCfgType(), *uses.toTypedArray())
+        return inst(opcode, type, *uses.toTypedArray())
     }
 
     //-------------------------------------------------------------------------//
