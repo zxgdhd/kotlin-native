@@ -20,6 +20,14 @@ sealed class Type {
 
 //--- Predefined types --------------------------------------------------------//
 
+val TypeBoolean  = Type.boolean
+val TypeByte     = Type.byte
+val TypeShort    = Type.short
+val TypeInt      = Type.int
+val TypeLong     = Type.long
+val TypeFloat    = Type.float
+val TypeDouble   = Type.double
+val TypeChar     = Type.char
 val TypeUnit     = Type.ptr("unit")             // Invalid pointer
 val TypeString   = Type.ptr("string")           // Pointer to string constant
 val TypeFunction = Type.ptr("function")         // Pointer to function

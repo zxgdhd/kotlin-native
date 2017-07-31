@@ -31,15 +31,13 @@ import org.jetbrains.kotlin.util.OperatorNameConventions
 
 //-----------------------------------------------------------------------------//
 
-internal class CfgSelector(val context: Context): IrElementVisitorVoid {
+internal class CfgSelector(val context: Context): CfgGenerator(), IrElementVisitorVoid {
 
     private val ir = Ir()
     private val declarations      = createCfgDeclarations(context)
     private val classDependencies = mutableListOf<Klass>()
     private val funcDependencies  = mutableListOf<Function>()
 
-    private var currentBlock                = Block("Entry")
-    private var currentFunction             = Function("Outer")
     private var currentLandingBlock: Block? = null
     private var currentClass: Klass?        = null
 
@@ -111,7 +109,7 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
             currentGlobalInitBlock = withBlock(currentGlobalInitBlock) {
                 declaration.initializer?.expression?.let {
                     val initializer = selectStatement(it)
-                    inst(Opcode.gstore, TypeUnit, Constant(TypeField, declaration.descriptor.toCfgName()), initializer)
+                    currentGlobalInitBlock.inst(Opcode.gstore, TypeUnit, Constant(TypeField, declaration.descriptor.toCfgName()), initializer)
                 }
             }
         }
@@ -191,29 +189,39 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
     private fun selectGetField(statement: IrGetField): Operand {
         // TODO: Use another opcode?
         val receiver = statement.receiver
-        val fieldPtr = Constant(TypeField, statement.descriptor.toCfgName())
         return if (receiver != null) {
-            val thisPtr = selectStatement(receiver)
+            val objPtr = selectStatement(receiver)
+            val offset = CfgNull // statement.getOffset()
             // TODO: maybe use symbols instead of descriptors?
-            // TODO: Use special methods for instruction emitting.
-            inst(Opcode.load, statement.type.toCfgType(), thisPtr, fieldPtr)
+            currentBlock.load(
+                defType = statement.type.toCfgType(),
+                address = objPtr,
+                offset  = offset)
         } else {
-            inst(Opcode.gload, statement.type.toCfgType(), fieldPtr)
+            val fieldPtr = CfgNull        // TODO
+            currentBlock.load(
+                defType = statement.type.toCfgType(),
+                address = fieldPtr,
+                offset  = Cfg0)
         }
     }
 
     //-------------------------------------------------------------------------//
 
     private fun selectSetField(statement: IrSetField): Operand {
-        val receiver = statement.receiver
-        val value = selectStatement(statement.value)
-        val fieldPtr = Constant(TypeField, statement.descriptor.toCfgName())
-        return if (receiver != null) {
-            val thisPtr = selectStatement(receiver)
-            inst(Opcode.store, TypeUnit, thisPtr, fieldPtr, value)
-        } else {
-            inst(Opcode.gstore, TypeUnit, fieldPtr, value)
+        val value     = selectStatement(statement.value)                                    // Value to store in filed.
+        val receiver  = statement.receiver                                                  // Object holding the field.
+        val fieldName = statement.descriptor.toCfgName()
+        if (receiver != null) {                                                             //
+            val thisPtr = selectStatement(receiver)                                         // Pointer to the object.
+            val klass   = receiver.type.toCfgType()
+            val offset  = Cfg0 // Constant(TypeInt, getFieldOffset(klass, fieldName))       // TODO calculate field offset
+            currentBlock.store(value, thisPtr, offset)
+        } else {                                                                            // There is no object, it is global field.
+            val globalFieldPtr = Variable(TypeField, fieldName)                             // TODO should we use special type here?
+            currentBlock.store(value, globalFieldPtr, Cfg0)
         }
+        return CfgUnit
     }
 
     //-------------------------------------------------------------------------//
@@ -251,7 +259,7 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
     private fun selectCast(statement: IrTypeOperatorCall): Operand {
         val value = selectStatement(statement.argument)                                     // Evaluate object to compare.
         val type  = statement.typeOperand.toCfgType()
-        return inst(Opcode.cast, type, value)
+        return currentBlock.cast(type, value)
     }
 
     //-------------------------------------------------------------------------//
@@ -268,15 +276,15 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
     private fun selectIntegerCoercion(statement: IrTypeOperatorCall): Operand {
         val type = statement.typeOperand
         assert(type.isPrimitiveInteger())
-        val result = selectStatement(statement.argument)
-        val srcType = result.type
+        val value = selectStatement(statement.argument)
+        val srcType = value.type
         val dstType = type.toCfgType()
         val srcWidth = srcType.byteSize
         val dstWidth = dstType.byteSize
         return when {
-            srcWidth == dstWidth           -> result
-            srcWidth > dstWidth            -> inst(Opcode.trunc, dstType, result)
-            else /* srcWidth < dstWidth */ -> inst(Opcode.sext, dstType, result)
+            srcWidth == dstWidth -> value
+            srcWidth >  dstWidth -> currentBlock.trunk(dstType, value)
+            else                 -> currentBlock.sext (dstType, value)                      // srcWidth < dstWidth
         }
     }
 
@@ -303,25 +311,23 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
     private fun selectSafeCast(statement: IrTypeOperatorCall): Operand {
         val value = selectStatement(statement.argument)                                     // Evaluate object to compare.
         val type  = statement.typeOperand.toCfgType()
-        return inst(Opcode.cast, type, value)
+        return currentBlock.cast(type, value)
     }
 
     //-------------------------------------------------------------------------//
 
     private fun selectInstanceOf(statement: IrTypeOperatorCall): Operand {
         val value = selectStatement(statement.argument)                                     // Evaluate object to compare.
-        val klass = statement.typeOperand.toCfgType()                                       // Class to compare.
-        val type  = Constant(klass, klass)                                                  // Operand representing the Class.
-        return inst(Opcode.instance_of, Type.boolean, value, type)
+        val type = statement.typeOperand.toCfgType()                                        // Class to compare.
+        return currentBlock.instance_of(value, type)
     }
 
     //-------------------------------------------------------------------------//
 
     private fun selectNotInstanceOf(statement: IrTypeOperatorCall): Operand {
         val value = selectStatement(statement.argument)                                     // Evaluate object to compare.
-        val klass = statement.typeOperand.toCfgType()                                       // Class to compare.
-        val type  = Constant(klass, klass)                                                  // Operand representing the Class.
-        return inst(Opcode.not_instance_of, Type.boolean, value, type)
+        val type = statement.typeOperand.toCfgType()                                        // Class to compare.
+        return currentBlock.not_instance_of(value, type)
     }
 
     //-------------------------------------------------------------------------//
@@ -361,7 +367,7 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
         } else {
             Opcode.call
         }
-        return inst(opcode, irCall.type.toCfgType(), *uses.toTypedArray())
+        return currentBlock.inst(opcode, irCall.type.toCfgType(), *uses.toTypedArray())
     }
 
     //-------------------------------------------------------------------------//
@@ -371,7 +377,7 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
         val type = irCall.type.toCfgType()
         val opcode = operatorToOpcode[irCall.descriptor.name]
                 ?: throw IllegalArgumentException("No opcode for call: $irCall")
-        return inst(opcode, type, *uses.toTypedArray())
+        return currentBlock.inst(opcode, type, *uses.toTypedArray())
     }
 
     //-------------------------------------------------------------------------//
@@ -395,7 +401,7 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
 
         currentBlock.br(loopCheck)
         currentBlock = loopCheck
-        currentBlock.condBr(selectStatement(irWhileLoop.condition), loopBody, loopExit)
+        currentBlock.condbr(selectStatement(irWhileLoop.condition), loopBody, loopExit)
 
         currentBlock = loopBody
         irWhileLoop.body?.let { selectStatement(it) }
@@ -424,7 +430,7 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
         }
 
         currentBlock = loopCheck
-        currentBlock.condBr(selectStatement(loop.condition), loopBody, loopExit)
+        currentBlock.condbr(selectStatement(loop.condition), loopBody, loopExit)
 
         loopStack.pop()
         currentBlock = loopExit
@@ -486,7 +492,7 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
             currentBlock
         } else {
             newBlock().also {
-                currentBlock.condBr(selectStatement(irBranch.condition), it, nextBlock)
+                currentBlock.condbr(selectStatement(irBranch.condition), it, nextBlock)
             }
         }
 
@@ -564,9 +570,9 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
                 currentBlock.br(tryExit)
             } else {
                 val catchBody = newBlock()
-                val isInstance = inst(Opcode.call, Type.boolean, isInstanceFunc, exception)
+                val isInstance = currentBlock.call(Type.boolean, isInstanceFunc, exception)
                 val nextCatch = newBlock("check_for_${it.parameter.name.asString()}")
-                currentBlock.condBr(isInstance, catchBody, nextCatch)
+                currentBlock.condbr(isInstance, catchBody, nextCatch)
                 currentBlock = catchBody
                 selectStatement(it.result)
                 currentBlock.br(tryExit)
@@ -645,38 +651,6 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
             clazz
         }
         return Type.ptr(klass)
-    }
-
-    //-------------------------------------------------------------------------//
-
-    private fun newVariable(type: Type, name: String = currentFunction.genVariableName())
-        = Variable(type, name)
-
-    //-------------------------------------------------------------------------//
-
-    private fun newBlock(name: String = "block") = currentFunction.newBlock(name)
-
-    //-------------------------------------------------------------------------//
-
-//    private fun inst(opcode: Opcode, target: Block): Operand
-//        = currentBlock.instruction(opcode, def, *uses).defs[0]
-
-    //-------------------------------------------------------------------------//
-
-    private fun inst(opcode: Opcode, def: Variable, vararg uses: Operand): Operand
-        = currentBlock.instruction(opcode, def, *uses).defs[0]
-
-    //-------------------------------------------------------------------------//
-
-    private fun inst(opcode: Opcode, defType: Type, vararg uses: Operand): Operand {
-        if (defType == TypeUnit) {
-            currentBlock.instruction(opcode, *uses)
-            return CfgNull
-        } else {
-            val def = newVariable(defType)
-            currentBlock.instruction(opcode, def, *uses)
-            return def
-        }
     }
 
     //-------------------------------------------------------------------------//
