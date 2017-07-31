@@ -31,8 +31,9 @@ val TypeChar     = Type.char
 val TypeUnit     = Type.ptr("unit")             // Invalid pointer
 val TypeString   = Type.ptr("string")           // Pointer to string constant
 val TypeFunction = Type.ptr("function")         // Pointer to function
-val TypeField    = Type.ptr("field")            //
+val TypeField    = Type.ptr("field")            // Pointer to an object field
 val TypeBlock    = Type.ptr("block")            // Pointer to basic block
+val TypeClass    = Type.ptr("class")            // Pointer to class' type info. // TODO: find another way to handle it
 val TypePtr      = Type.ptr("ptr")              // Pointer to any object we know nothing about
 
 //--- Type usage examples -----------------------------------------------------//
