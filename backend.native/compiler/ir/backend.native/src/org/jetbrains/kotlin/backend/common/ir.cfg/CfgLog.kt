@@ -22,7 +22,6 @@ fun Variable.asString() = "$name:$type"
 
 fun Constant.asString() =
     when(type) {
-        Type.boolean -> if (value == 1) "true" else "false"
         TypeString   -> "\"$value\""
         else         -> value.toString()
     }

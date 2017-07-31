@@ -359,7 +359,7 @@ internal class CfgSelector(val context: Context): CfgGenerator(), IrElementVisit
         val descriptor = irCall.descriptor as ConstructorDescriptor
         val constructedClass = descriptor.constructedClass
         val typePtr = Constant(TypeClass, constructedClass.toCfgName())
-        val objPtr = inst(Opcode.alloc, irCall.type.toCfgType(), typePtr)
+        val objPtr = currentBlock.inst(Opcode.alloc, irCall.type.toCfgType(), typePtr)
         val args = mutableListOf(objPtr).apply {
             irCall.getArguments().mapTo(this) { (_, expr) -> selectStatement(expr) }
         }
