@@ -51,7 +51,7 @@ fun Call.asString(): String {
     if (defs.isNotEmpty()) {
         buff.append(defs[0].toString() + " = ")                                      // return value
     }
-    val arguments = uses.joinToString()
+    val arguments = args.joinToString()
     val opcode = this::class.simpleName?.toLowerCase()
     buff.append("$opcode ${callee.name}($arguments)")
     return buff.toString()
@@ -65,7 +65,7 @@ fun Invoke.asString(): String {
     if (defs.isNotEmpty()) {
         buff.append(defs[0].toString() + " = ")                                      // return value
     }
-    val arguments = uses.joinToString()
+    val arguments = args.joinToString()
     val opcode = this::class.simpleName?.toLowerCase()
     buff.append("$opcode ${callee.name}($arguments)")
     return buff.toString()

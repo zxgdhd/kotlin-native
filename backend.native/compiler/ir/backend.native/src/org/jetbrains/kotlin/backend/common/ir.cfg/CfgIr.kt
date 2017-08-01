@@ -21,9 +21,9 @@ class Variable(type: Type, val name: String): Operand(type) {                  /
 
 //-----------------------------------------------------------------------------//
 
-abstract class Instruction(val opcode: Opcode) {
-    val uses = mutableListOf<Operand>()                                        // Operands used by this instruction.
-    val defs = mutableListOf<Variable>()                                       // Operands defined by this instruction.
+abstract class Instruction(
+    val uses: List<Operand> = listOf<Operand>(),                               // Operands used by this instruction.
+    val defs: List<Variable> = listOf<Variable>()) {                           // Operands defined by this instruction.
     override fun toString() = asString()
 }
 
