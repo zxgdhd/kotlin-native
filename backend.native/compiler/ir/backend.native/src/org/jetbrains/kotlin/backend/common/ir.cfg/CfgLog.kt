@@ -3,15 +3,15 @@ package org.jetbrains.kotlin.backend.common.ir.cfg
 //-----------------------------------------------------------------------------//
 
 fun Type.asString(): String = when (this) {
-    Type.boolean       -> "boolean"
-    Type.byte          -> "byte"
-    Type.short         -> "short"
-    Type.int           -> "int"
-    Type.long          -> "long"
-    Type.float         -> "float"
-    Type.double        -> "double"
-    Type.char          -> "char"
-    is Type.ptr<*>     -> value.toString()
+    Type.boolean   -> "boolean"
+    Type.byte      -> "byte"
+    Type.short     -> "short"
+    Type.int       -> "int"
+    Type.long      -> "long"
+    Type.float     -> "float"
+    Type.double    -> "double"
+    Type.char      -> "char"
+    is Type.ptr<*> -> value.toString()
 }
 
 //-----------------------------------------------------------------------------//
@@ -22,8 +22,8 @@ fun Variable.asString() = "$name:$type"
 
 fun Constant.asString() =
     when(type) {
-        TypeString   -> "\"$value\""
-        else         -> value.toString()
+        TypeString -> "\"$value\""
+        else       -> value.toString()
     }
 
 //-----------------------------------------------------------------------------//
@@ -72,7 +72,7 @@ fun Function.asString(): String {
 //-----------------------------------------------------------------------------//
 
 fun Block.log() {
-    println("  $name:")
+    println("  L.$name")
     instructions.forEach { println("    $it") }
 }
 

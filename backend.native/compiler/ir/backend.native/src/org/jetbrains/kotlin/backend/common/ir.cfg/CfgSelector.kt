@@ -59,17 +59,6 @@ internal class CfgSelector(val context: Context): CfgGenerator(), IrElementVisit
 
     //-------------------------------------------------------------------------//
 
-    private fun withBlock(block: Block, body: () -> Unit) : Block {
-        val oldCurrent = currentBlock
-        currentBlock = block
-        body()
-        val result = currentBlock
-        currentBlock = oldCurrent
-        return result
-    }
-
-    //-------------------------------------------------------------------------//
-
     fun select() {
         context.irModule!!.acceptVoid(this)
         currentGlobalInitBlock.ret()
@@ -98,17 +87,14 @@ internal class CfgSelector(val context: Context): CfgGenerator(), IrElementVisit
         val type = descriptor.type.toCfgType()
         val name = descriptor.fqNameSafe.asString()
 
-        if (currentClass != null) {
-            // class field
+        if (currentClass != null) {                                                         // Class field.
             currentClass.fields += Variable(type, name)
-            // Field initializer was moved into constructor by Init lowering.
-        } else {
-            // "Global" field
-            currentGlobalInitBlock = withBlock(currentGlobalInitBlock) {
-                declaration.initializer?.expression?.let {
-                    val initializer = selectStatement(it)
-                    currentGlobalInitBlock.inst(Opcode.gstore, TypeUnit, Constant(TypeField, declaration.descriptor.toCfgName()), initializer)
-                }
+        } else {                                                                            // Global field.
+            declaration.initializer?.expression?.let {
+                val initValue = selectStatement(it)
+                val fieldName = declaration.descriptor.toCfgName()
+                val globalPtr = Constant(TypeField, fieldName)                                  // TODO should we use special type here?
+                currentGlobalInitBlock.store(initValue, globalPtr, Cfg0)
             }
         }
     }
@@ -186,22 +172,18 @@ internal class CfgSelector(val context: Context): CfgGenerator(), IrElementVisit
     //-------------------------------------------------------------------------//
 
     private fun selectGetField(statement: IrGetField): Operand {
-        // TODO: Use another opcode?
+        val filedType = statement.type.toCfgType()
         val receiver = statement.receiver
-        return if (receiver != null) {
-            val objPtr = selectStatement(receiver)
-            val offset = CfgNull // statement.getOffset()
-            // TODO: maybe use symbols instead of descriptors?
-            currentBlock.load(
-                defType = statement.type.toCfgType(),
-                address = objPtr,
-                offset  = offset)
-        } else {
-            val fieldPtr = CfgNull        // TODO
-            currentBlock.load(
-                defType = statement.type.toCfgType(),
-                address = fieldPtr,
-                offset  = Cfg0)
+        return if (receiver != null) {                                                      // It is class field.
+            val thisPtr   = selectStatement(receiver)                                       // Get object pointer.
+            val thisType  = receiver.type.toCfgType()                                       // Get object type.
+            val offsetVal = thisType.fieldOffset(statement.descriptor.toCfgName())          // Calculate field offset inside the object.
+            val offset    = Constant(TypeInt, offsetVal)                                    //
+            currentBlock.load(filedType, thisPtr, offset)                                   // TODO make "load" receiving offset as Int
+        } else {                                                                            // It is global field.
+            val fieldName = statement.descriptor.toCfgName()
+            val globalPtr = Constant(TypeField, fieldName)                                  // TODO should we use special type here?
+            currentBlock.load(filedType, globalPtr, Cfg0)
         }
     }
 
@@ -210,15 +192,16 @@ internal class CfgSelector(val context: Context): CfgGenerator(), IrElementVisit
     private fun selectSetField(statement: IrSetField): Operand {
         val value     = selectStatement(statement.value)                                    // Value to store in filed.
         val receiver  = statement.receiver                                                  // Object holding the field.
-        val fieldName = statement.descriptor.toCfgName()
-        if (receiver != null) {                                                             //
+        if (receiver != null) {                                                             // It is class field.
             val thisPtr = selectStatement(receiver)                                         // Pointer to the object.
-            val klass   = receiver.type.toCfgType()
-            val offset  = Cfg0 // Constant(TypeInt, getFieldOffset(klass, fieldName))       // TODO calculate field offset
-            currentBlock.store(value, thisPtr, offset)
-        } else {                                                                            // There is no object, it is global field.
-            val globalFieldPtr = Variable(TypeField, fieldName)                             // TODO should we use special type here?
-            currentBlock.store(value, globalFieldPtr, Cfg0)
+            val thisType = receiver.type.toCfgType()                                        // Get object type.
+            val offsetVal = thisType.fieldOffset(statement.descriptor.toCfgName())          // Calculate field offset inside the object.
+            val offset    = Constant(TypeInt, offsetVal)                                    //
+            currentBlock.store(value, thisPtr, offset)                                      // TODO make "load" receiving offset as Int
+        } else {                                                                            // It is global field.
+            val fieldName = statement.descriptor.toCfgName()
+            val globalPtr = Constant(TypeField, fieldName)                                  // TODO should we use special type here?
+            currentBlock.store(value, globalPtr, Cfg0)
         }
         return CfgUnit
     }
