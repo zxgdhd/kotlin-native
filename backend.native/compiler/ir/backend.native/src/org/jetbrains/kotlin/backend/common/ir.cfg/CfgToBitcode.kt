@@ -8,7 +8,6 @@ import org.jetbrains.kotlin.backend.konan.PhaseManager
 import org.jetbrains.kotlin.backend.konan.isValueType
 import org.jetbrains.kotlin.backend.konan.llvm.*
 import org.jetbrains.kotlin.ir.declarations.IrField
-import org.jetbrains.kotlin.ir.declarations.name
 
 
 internal class CfgToBitcode(
@@ -19,6 +18,8 @@ internal class CfgToBitcode(
         val funcDependencies: List<Function>
 ) {
     val codegen: CodeGenerator
+    val module: LLVMModuleRef
+    val cfgLlvmDeclarations: CfgLlvmDeclarations
 
     val kVoidFuncType : LLVMTypeRef
     val kInitFuncType : LLVMTypeRef
@@ -31,9 +32,9 @@ internal class CfgToBitcode(
     private val objects = mutableSetOf<LLVMValueRef>()
 
     init {
-        val module = LLVMModuleCreateWithName("out")!!
+        module = LLVMModuleCreateWithName("out")!!
         context.llvmModule = module
-        context.llvmDeclarations = createLLVMDeclarations(classDeclarations, funcDeclarations)
+        cfgLlvmDeclarations = createLlvmDeclarations(context, funcDeclarations, funcDependencies)
         codegen = CodeGenerator(context)
 
         kVoidFuncType = LLVMFunctionType(LLVMVoidType(), null, 0, 0)!!
@@ -44,7 +45,9 @@ internal class CfgToBitcode(
         kImmOne      = LLVMConstInt(LLVMInt32Type(),  1, 1)!!
         kTrue        = LLVMConstInt(LLVMInt1Type(),   1, 1)!!
         kFalse       = LLVMConstInt(LLVMInt1Type(),   0, 1)!!
+    }
 
+    fun select() {
         ir.functions.values.forEach { selectFunction(it) }
 
         val fileName = "TODO"
@@ -57,7 +60,7 @@ internal class CfgToBitcode(
         createInitCtor(ctorName, initNode)
 
         val program = context.config.outputName
-        val output = "${program}.kt.bc"
+        val output = "$program.kt.bc"
         context.bitcodeFileName = output
 
         PhaseManager(context).phase(KonanPhase.BITCODE_LINKER) {
@@ -69,10 +72,7 @@ internal class CfgToBitcode(
                 }
             }
         }
-    }
 
-    private fun createLLVMDeclarations(classDeclarations: List<Klass>, funcDeclarations: List<Function>): LlvmDeclarations {
-        TODO("Not implemented")
     }
 
     fun createInitBody(initName: String): LLVMValueRef {
@@ -142,75 +142,19 @@ internal class CfgToBitcode(
     }
 
     private fun selectInstruction(instruction: Instruction) {
-        when (instruction.opcode) {
-
-            Opcode.ret -> TODO()
-            Opcode.br -> TODO()
-            Opcode.condbr -> TODO()
-            Opcode.switch -> TODO()
-            Opcode.indirectbr -> TODO()
-            Opcode.invoke -> TODO()
-            Opcode.resume -> TODO()
-            Opcode.catchswitch -> TODO()
-            Opcode.catchret -> TODO()
-            Opcode.cleanupret -> TODO()
-            Opcode.unreachable -> TODO()
-            Opcode.add -> TODO()
-            Opcode.sub -> TODO()
-            Opcode.mul -> TODO()
-            Opcode.udiv -> TODO()
-            Opcode.sdiv -> TODO()
-            Opcode.urem -> TODO()
-            Opcode.srem -> TODO()
-            Opcode.shl -> TODO()
-            Opcode.lshr -> TODO()
-            Opcode.ashr -> TODO()
-            Opcode.and -> TODO()
-            Opcode.or -> TODO()
-            Opcode.xor -> TODO()
-            Opcode.extractelement -> TODO()
-            Opcode.insertelement -> TODO()
-            Opcode.shufflevector -> TODO()
-            Opcode.extractvalue -> TODO()
-            Opcode.insertvalue -> TODO()
-            Opcode.alloca -> TODO()
-            Opcode.load -> TODO()
-            Opcode.store -> TODO()
-            Opcode.fence -> TODO()
-            Opcode.cmpxchg -> TODO()
-            Opcode.atomicrmw -> TODO()
-            Opcode.getelementptr -> TODO()
-            Opcode.trunc -> TODO()
-            Opcode.zext -> TODO()
-            Opcode.sext -> TODO()
-            Opcode.fptrunc -> TODO()
-            Opcode.fpext -> TODO()
-            Opcode.fptoui -> TODO()
-            Opcode.fptosi -> TODO()
-            Opcode.uitofp -> TODO()
-            Opcode.sitofp -> TODO()
-            Opcode.ptrtoint -> TODO()
-            Opcode.inttoptr -> TODO()
-            Opcode.bitcast -> TODO()
-            Opcode.addrspacecast -> TODO()
-            Opcode.cmp -> TODO()
-            Opcode.phi -> TODO()
-            Opcode.select -> TODO()
-            Opcode.call -> selectCall(instruction.uses, instruction.defs)
-            Opcode.mov -> TODO()
-            Opcode.landingpad -> TODO()
-            Opcode.catchpad -> TODO()
-            Opcode.cleanuppad -> TODO()
-            Opcode.invalid -> TODO()
-            Opcode.cast -> TODO()
-            Opcode.integer_coercion -> TODO()
-            Opcode.implicit_cast -> TODO()
-            Opcode.implicit_not_null -> TODO()
-            Opcode.coercion_to_unit -> TODO()
-            Opcode.safe_cast -> TODO()
-            Opcode.instance_of -> TODO()
-            Opcode.not_instance_of -> TODO()
+        when (instruction) {
+            is Call -> selectCall(instruction)
+            is Ret  -> selectRet(instruction)
         }
+    }
+
+    private fun selectRet(ret: Ret) {
+        // TODO: use ret value
+        codegen.ret(null)
+    }
+
+    private fun selectCall(call: Call) {
+        codegen.call(call.callee.llvmFunction, call.args.map { selectOperand(it)})
     }
 
     fun selectConst(const: Constant): LLVMValueRef {
@@ -230,21 +174,13 @@ internal class CfgToBitcode(
     fun selectVariable(variable: Variable): LLVMValueRef = TODO("Not implemented yet")
 
     val Function.llvmFunction: LLVMValueRef
-        get() {
-            return if (this in funcDependencies) {
-                context.llvm.externalFunction(this.name, voidType)
-            } else {
-                TODO("take reference to created function")
-            }
-        }
+        get() = cfgLlvmDeclarations.functions[this]!!.llvmFunction
 
-    fun selectCall(uses: List<Operand>, defs: List<Variable>) {
-        val func = (uses[0] as Constant).value as Function
-        val args: List<LLVMValueRef> = uses.drop(1).map { when(it) {
+    fun selectOperand(it: Operand): LLVMValueRef {
+        return when(it) {
             is Variable -> selectVariable(it)
             is Constant -> selectConst(it)
             else        -> error("Unexpected operand type")
-        } }
-        codegen.call(func.llvmFunction, args)
+        }
     }
 }

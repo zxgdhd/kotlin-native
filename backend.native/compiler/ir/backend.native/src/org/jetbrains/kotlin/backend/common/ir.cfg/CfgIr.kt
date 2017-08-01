@@ -21,10 +21,10 @@ class Variable(type: Type, val name: String): Operand(type) {                  /
 
 //-----------------------------------------------------------------------------//
 
-class Instruction(val opcode: Opcode) {
-    val uses = mutableListOf<Operand>()                                        // Operands used by this instruction.
-    val defs = mutableListOf<Variable>()                                       // Operands defined by this instruction.
-
+abstract class Instruction(
+        val uses: List<Operand> = listOf<Operand>(),                            // Operands used by this instruction.
+        val defs: List<Variable> = emptyList()                                             // Operands defined by this instruction.
+) {
     override fun toString() = asString()
 }
 
@@ -40,9 +40,11 @@ class Block(val name: String) {
 
 //-----------------------------------------------------------------------------//
 
-class Function(val name: String) {
+class Function(val name: String,
+               val returnType: Type     = TypeUnit
+) {
     val parameters = mutableListOf<Variable>()
-    var enter      = Block("enter")                                            // Enter block of function cfg.
+    val enter      = Block("enter")                                            // Enter block of function cfg.
 
     var maxBlockId    = 0
     var maxVariableId = 0
@@ -54,7 +56,7 @@ class Function(val name: String) {
 class Klass(val name: String) {
     val supers  = mutableListOf<Klass>()                                       // Superclass and interfaces.
     val methods = mutableListOf<Function>()                                    // Methods and property getters/setters.
-    val fields  = mutableListOf<Operand>()                                     // Backing fields.
+    val fields  = mutableListOf<Variable>()                                     // Backing fields.
 
     override fun toString() = name
 }

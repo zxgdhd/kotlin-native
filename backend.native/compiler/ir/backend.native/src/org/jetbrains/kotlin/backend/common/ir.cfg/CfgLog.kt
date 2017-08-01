@@ -29,8 +29,8 @@ fun Constant.asString() =
 //-----------------------------------------------------------------------------//
 
 fun Instruction.asString(): String {
-    if (opcode == Opcode.call)   return callAsString()
-    if (opcode == Opcode.invoke) return callAsString()
+    if (this is Call)   return asString()
+    if (this is Invoke) return asString()
     val buff = StringBuilder()
     if (defs.isNotEmpty()) {
         buff.append(defs.joinToString())
@@ -38,6 +38,7 @@ fun Instruction.asString(): String {
         buff.append(" = ")
     }
 
+    val opcode = this::class.simpleName?.toLowerCase()
     buff.append("$opcode ")
     buff.append(uses.joinToString())
     return buff.toString()
@@ -45,22 +46,31 @@ fun Instruction.asString(): String {
 
 //-----------------------------------------------------------------------------//
 
-fun Instruction.callAsString(): String {
+fun Call.asString(): String {
     val buff = StringBuilder()
-    if (defs.size > 0) {
+    if (defs.isNotEmpty()) {
         buff.append(defs[0].toString() + " = ")                                      // return value
     }
-
-    val use0   = uses[0]
-    val callee = when (use0) {
-        is Variable -> use0.name
-        is Constant -> use0.value.toString()
-        else        -> throw TODO("Unexpected callee type")
-    }
-    val arguments = uses.drop(1).joinToString()
-    buff.append("$opcode $callee($arguments)")
+    val arguments = uses.joinToString()
+    val opcode = this::class.simpleName?.toLowerCase()
+    buff.append("$opcode ${callee.name}($arguments)")
     return buff.toString()
 }
+
+//-----------------------------------------------------------------------------//
+
+
+fun Invoke.asString(): String {
+    val buff = StringBuilder()
+    if (defs.isNotEmpty()) {
+        buff.append(defs[0].toString() + " = ")                                      // return value
+    }
+    val arguments = uses.joinToString()
+    val opcode = this::class.simpleName?.toLowerCase()
+    buff.append("$opcode ${callee.name}($arguments)")
+    return buff.toString()
+}
+
 
 //-----------------------------------------------------------------------------//
 
@@ -72,7 +82,7 @@ fun Function.asString(): String {
 //-----------------------------------------------------------------------------//
 
 fun Block.log() {
-    println("  $name:")
+    println("  L.$name")
     instructions.forEach { println("    $it") }
 }
 

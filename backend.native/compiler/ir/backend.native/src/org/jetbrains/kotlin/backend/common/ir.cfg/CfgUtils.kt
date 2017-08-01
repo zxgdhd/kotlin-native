@@ -9,17 +9,9 @@ val CfgUnit = Variable(TypeUnit, "unit")
 
 //--- Opcode ------------------------------------------------------------------//
 
-fun Opcode.isTerminal() = this == Opcode.br || this == Opcode.ret || this == Opcode.invoke || this == Opcode.resume
+fun Instruction.isTerminal() =
+        this is Br || this is Ret || this is Invoke
 
-//--- Operand -----------------------------------------------------------------//
-
-fun Operand.addDef(instruction: Instruction) { defs.add(instruction) }
-fun Operand.addUse(instruction: Instruction) { uses.add(instruction) }
-
-//--- Instruction -------------------------------------------------------------//
-
-fun Instruction.addUse(operand: Operand)  { operand.addUse(this); uses.add(operand) }
-fun Instruction.addDef(operand: Variable) { operand.addDef(this); defs.add(operand) }
 
 //--- Block -------------------------------------------------------------------//
 
@@ -30,32 +22,49 @@ fun Block.addSuccessor(successor: Block) {
 
 //-----------------------------------------------------------------------------//
 
-fun Block.instruction(opcode: Opcode, vararg uses: Operand): Instruction {
-    val instruction = Instruction(opcode)
-    instructions.add(instruction)
-    uses.forEach(instruction::addUse)
-    return instruction
-}
+fun Block.inst(instruction: Instruction): Operand {
 
-//-----------------------------------------------------------------------------//
+    val ret: Variable = when (instruction) {
+        is Invoke -> {
+            addSuccessor(instruction.landingpad)
+            instruction.def
+        }
+        is Condbr -> {
+            addSuccessor(instruction.targetFalse)
+            addSuccessor(instruction.targetTrue)
+            CfgUnit
+        }
+        is Br -> {
+            addSuccessor(instruction.target)
+            CfgUnit
 
-fun Block.instruction(opcode: Opcode, def: Variable, vararg uses: Operand): Instruction {
-    val instruction = Instruction(opcode)
-    instructions.add(instruction)
-    uses.forEach(instruction::addUse)
-    instruction.addDef(def)
-    return instruction
+        }
+        is InstanceOf -> instruction.def
+        else -> CfgUnit
+    }
+    instructions += instruction
+    return ret
 }
 
 //-----------------------------------------------------------------------------//
 
 fun Block.isLastInstructionTerminal(): Boolean
-    = instructions.isNotEmpty() && instructions.last().opcode.isTerminal()
+    = instructions.isNotEmpty() && instructions.last().isTerminal()
+
+//-----------------------------------------------------------------------------//
+
+val Block.ptr: Constant
+    get() = Constant(TypeBlock, this)
 
 //--- Function ----------------------------------------------------------------//
 
 fun Function.newBlock(name: String = "block") = Block(genBlockName(name))
 fun Function.addValueParameters(parameters: List<Variable>) { this.parameters.addAll(parameters) }
+
+//-----------------------------------------------------------------------------//
+
+val Function.ptr: Constant
+    get() = Constant(TypeFunction, this)
 
 //--- Ir ----------------------------------------------------------------------//
 

@@ -36,6 +36,20 @@ val TypeBlock    = Type.ptr("block")            // Pointer to basic block
 val TypeClass    = Type.ptr("class")            // Pointer to class' type info. // TODO: find another way to handle it
 val TypePtr      = Type.ptr("ptr")              // Pointer to any object we know nothing about
 
+//--- Utils -------------------------------------------------------------------//
+
+fun Type.fieldOffset(fieldName: String): Int {
+    if (this !is Type.ptr<*>) return -1
+    if (value !is Klass)      return -1
+    var offset = 0
+    value.fields.forEach { field ->
+        if (field.name == fieldName) return offset
+        offset += field.type.byteSize
+    }
+    println("ERROR: No field $fieldName found in class $value")
+    return -1
+}
+
 //--- Type usage examples -----------------------------------------------------//
 
 /*

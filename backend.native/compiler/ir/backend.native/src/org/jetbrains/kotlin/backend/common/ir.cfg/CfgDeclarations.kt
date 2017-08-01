@@ -19,6 +19,13 @@ data class CfgDeclarations(
         val classes: MutableMap<ClassDescriptor, Klass>
 )
 
+//data class CfgFunctionDeclaration(
+//        val isExported: Boolean,
+//        val isIntrinsic: Boolean,
+//        val symbol: String,
+//
+//)
+
 internal fun createCfgDeclarations(context: Context): CfgDeclarations
         = with(CfgDeclarationsGenerator(context)) {
     context.ir.irModule.acceptVoid(this)
