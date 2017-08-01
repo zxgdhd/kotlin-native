@@ -215,7 +215,8 @@ internal class CfgSelector(val context: Context): IrElementVisitorVoid {
     private fun selectSetField(statement: IrSetField): Operand {
         val value     = selectStatement(statement.value)                                    // Value to store in filed.
         val receiver  = statement.receiver                                                  // Object holding the field.
-        if (receiver != null) {                                                             // It is class field.
+        val fieldName = statement.descriptor.toCfgName()
+        if (receiver != null) {                                                             //
             val thisPtr = selectStatement(receiver)                                         // Pointer to the object.
             val thisType = receiver.type.toCfgType()                                        // Get object type.
             val offsetVal = thisType.fieldOffset(statement.descriptor.toCfgName())          // Calculate field offset inside the object.
