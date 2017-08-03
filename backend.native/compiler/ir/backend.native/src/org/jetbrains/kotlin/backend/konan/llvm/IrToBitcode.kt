@@ -327,6 +327,9 @@ internal class CodeGeneratorVisitor(val context: Context, val lifetimes: Map<IrE
     override fun visitModuleFragment(declaration: IrModuleFragment) {
         context.log{"visitModule                    : ${ir2string(declaration)}"}
 
+        val devirtualizedCallSites = Devirtualization.analyze(declaration, context)
+        Devirtualization.devirtualize(declaration, context, devirtualizedCallSites)
+
         declaration.acceptChildrenVoid(this)
         appendLlvmUsed(context.llvm.usedFunctions)
         appendStaticInitializers(context.llvm.staticInitializers)
