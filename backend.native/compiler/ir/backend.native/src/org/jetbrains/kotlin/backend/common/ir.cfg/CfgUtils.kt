@@ -3,8 +3,8 @@ package org.jetbrains.kotlin.backend.common.ir.cfg
 //--- Globals -----------------------------------------------------------------//
 
 val CfgNull = Constant(TypeUnit, "null")
-val Cfg0    = Constant(TypeInt, 0)
-val Cfg1    = Constant(TypeInt, 1)
+val Cfg0    = Constant(Type.int, 0)
+val Cfg1    = Constant(Type.int, 1)
 val CfgUnit = Variable(TypeUnit, "unit")
 
 //--- Opcode ------------------------------------------------------------------//
@@ -54,7 +54,7 @@ fun Block.isLastInstructionTerminal(): Boolean
 //-----------------------------------------------------------------------------//
 
 val Block.ptr: Constant
-    get() = Constant(TypeBlock, this)
+    get() = Constant(Type.BlockPtr, this)
 
 //--- Function ----------------------------------------------------------------//
 
@@ -64,7 +64,7 @@ fun Function.addValueParameters(parameters: List<Variable>) { this.parameters.ad
 //-----------------------------------------------------------------------------//
 
 val Function.ptr: Constant
-    get() = Constant(TypeFunction, this)
+    get() = Constant(Type.FunctionPtr, this)
 
 //--- Ir ----------------------------------------------------------------------//
 

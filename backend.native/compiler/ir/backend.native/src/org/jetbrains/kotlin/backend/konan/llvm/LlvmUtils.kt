@@ -154,7 +154,7 @@ internal fun ContextUtils.numParameters(functionType: LLVMTypeRef) : Int {
     return LLVMCountParamTypes(LLVMGetElementType(functionType))!!
 }
 
-internal fun ContextUtils.isObjectReturn(functionType: LLVMTypeRef) : Boolean {
+internal fun RuntimeAware.isObjectReturn(functionType: LLVMTypeRef) : Boolean {
     // Note that type is usually function pointer, so we have to dereference it.
     val returnType = LLVMGetReturnType(LLVMGetElementType(functionType))!!
     return isObjectType(returnType)

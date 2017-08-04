@@ -11,7 +11,8 @@ fun Type.asString(): String = when (this) {
     Type.float     -> "float"
     Type.double    -> "double"
     Type.char      -> "char"
-    is Type.ptr<*> -> value.toString()
+    is Type.KlassPtr -> klass.name
+    is Type.ptr -> "ptr"
 }
 
 //-----------------------------------------------------------------------------//
@@ -76,7 +77,7 @@ fun Invoke.asString(): String {
 
 fun Function.asString(): String {
     val valueParametersStr = parameters.joinToString(", ", "", "", -1, "", { it.asString() })     // Function parameters as string.
-    return "$name($valueParametersStr)"                                                     // Print selectFunction declaration.
+    return "$name($valueParametersStr): ${returnType.asString()}"                                                     // Print selectFunction declaration.
 }
 
 //-----------------------------------------------------------------------------//

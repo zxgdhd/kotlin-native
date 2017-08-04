@@ -1,71 +1,205 @@
 package org.jetbrains.kotlin.backend.common.ir.cfg
 
 import org.jetbrains.kotlin.backend.konan.Context
-import org.jetbrains.kotlin.backend.konan.descriptors.isIntrinsic
-import org.jetbrains.kotlin.backend.konan.llvm.ContextUtils
-import org.jetbrains.kotlin.backend.konan.serialization.classOrPackage
+import org.jetbrains.kotlin.backend.konan.ValueType
+import org.jetbrains.kotlin.backend.konan.correspondingValueType
+import org.jetbrains.kotlin.backend.konan.descriptors.*
+import org.jetbrains.kotlin.backend.konan.isValueType
+import org.jetbrains.kotlin.backend.konan.llvm.*
 import org.jetbrains.kotlin.descriptors.*
-import org.jetbrains.kotlin.ir.IrElement
-import org.jetbrains.kotlin.ir.declarations.IrClass
 import org.jetbrains.kotlin.ir.declarations.IrField
-import org.jetbrains.kotlin.ir.declarations.IrFunction
-import org.jetbrains.kotlin.ir.visitors.IrElementVisitorVoid
-import org.jetbrains.kotlin.ir.visitors.acceptChildrenVoid
-import org.jetbrains.kotlin.ir.visitors.acceptVoid
+import org.jetbrains.kotlin.ir.declarations.IrProperty
 import org.jetbrains.kotlin.resolve.descriptorUtil.fqNameSafe
+import org.jetbrains.kotlin.resolve.descriptorUtil.getSuperClassNotAny
+import org.jetbrains.kotlin.resolve.descriptorUtil.getSuperClassOrAny
+import org.jetbrains.kotlin.resolve.descriptorUtil.module
+import org.jetbrains.kotlin.serialization.deserialization.descriptors.DeserializedPropertyDescriptor
+import org.jetbrains.kotlin.types.KotlinType
+import org.jetbrains.kotlin.types.TypeUtils
+import org.jetbrains.kotlin.types.typeUtil.isUnit
 
-data class CfgDeclarations(
-        val functions: MutableMap<FunctionDescriptor, Function>,
-        val classes: MutableMap<ClassDescriptor, Klass>
+class CfgDeclarations(
+        val functions: MutableMap<FunctionDescriptor, Function> = mutableMapOf(),
+        val classes: MutableMap<ClassDescriptor, Klass> = mutableMapOf(),
+        val funcMetas: MutableMap<Function, FunctionMetaInfo> = mutableMapOf(),
+        val classMetas: MutableMap<Klass, KlassMetaInfo> = mutableMapOf()
 )
 
-//data class CfgFunctionDeclaration(
-//        val isExported: Boolean,
-//        val isIntrinsic: Boolean,
-//        val symbol: String,
-//
-//)
+class KlassMetaInfo(
+        val isExported: Boolean,
+        val isExternal: Boolean,
+        val isAbstract: Boolean,
+        val vtableSize: Int
+)
 
-internal fun createCfgDeclarations(context: Context): CfgDeclarations
-        = with(CfgDeclarationsGenerator(context)) {
-    context.ir.irModule.acceptVoid(this)
-    CfgDeclarations(functions, classes)
-}
+class FunctionMetaInfo(
+        val isExported: Boolean,
+        val isIntrinsic: Boolean,
+        val isExternal: Boolean,
+        val symbol: String
+)
 
-private class CfgDeclarationsGenerator(override val context: Context) :
-        IrElementVisitorVoid, ContextUtils {
-    val classes = mutableMapOf<ClassDescriptor, Klass>()
-    val functions = mutableMapOf<FunctionDescriptor, Function>()
+/**
+ * Maps Declarations to CfgTypes and Functions
+ */
+internal interface TypeResolver : RuntimeAware {
+    val context: Context
 
-    override fun visitElement(element: IrElement) = element.acceptChildrenVoid(this)
+    override val runtime: Runtime
+        get() = context.llvm.runtime
 
-    override fun visitClass(declaration: IrClass) {
-        if (!declaration.descriptor.isIntrinsic) {
-            classes[declaration.descriptor] = createClassDeclaration(declaration)
+    private val classes: MutableMap<ClassDescriptor, Klass>
+        get() = context.cfgDeclarations.classes
+
+    private val functions: MutableMap<FunctionDescriptor, Function>
+        get() = context.cfgDeclarations.functions
+
+    private val classMetas: MutableMap<Klass, KlassMetaInfo>
+        get() = context.cfgDeclarations.classMetas
+
+    private val funcMetas: MutableMap<Function, FunctionMetaInfo>
+        get() = context.cfgDeclarations.funcMetas
+
+    fun isExternal(descriptor: DeclarationDescriptor) = descriptor.module != context.ir.irModule.descriptor
+
+    val KotlinType.cfgType: Type
+        get() = if (!isValueType()) {
+                val classDescriptor = TypeUtils.getClassDescriptor(this)
+                        ?: error("Cannot get class descriptor ${this.constructor}")
+                Type.KlassPtr(classDescriptor.cfgKlass)
+            } else when (correspondingValueType) {
+                ValueType.BOOLEAN        -> Type.boolean
+                ValueType.CHAR           -> Type.short
+                ValueType.BYTE           -> Type.byte
+                ValueType.SHORT          -> Type.short
+                ValueType.INT            -> Type.int
+                ValueType.LONG           -> Type.long
+                ValueType.FLOAT          -> Type.float
+                ValueType.DOUBLE         -> Type.double
+                ValueType.NATIVE_PTR     -> Type.ptr()
+                ValueType.NATIVE_POINTED -> Type.ptr()
+                ValueType.C_POINTER      -> Type.ptr()
+                null                     -> throw TODO("Null ValueType")
+            }
+
+    val ClassDescriptor.cfgKlass: Klass
+        get() {
+            if (this !in classes) {
+                val klass = createCfgKlass(this)
+                classes[this] = klass
+                classMetas[klass] = this.metaInfo
+            }
+            return classes[this]!!
         }
-        super.visitClass(declaration)
-    }
 
-    override fun visitFunction(declaration: IrFunction) {
-        functions[declaration.descriptor] = createFunctionDeclaration(declaration)
-        super.visitFunction(declaration)
-    }
+    private fun createCfgKlass(classDescriptor: ClassDescriptor): Klass {
+        context.log { "Create klass: ${classDescriptor.name.asString()}" }
 
-    override fun visitField(declaration: IrField) {
-        super.visitField(declaration)
-    }
+        if (classDescriptor.isUnit()) {
+            return unitKlass
+        }
 
-    private fun createClassDeclaration(declaration: IrClass): Klass {
-        val descriptor = declaration.descriptor
-        val klass = Klass(descriptor.toCfgName())
+        val klass = Klass(classDescriptor.toCfgName())
+
+        if (isExternal(classDescriptor)) {
+           return klass
+        }
+
+        getFields(classDescriptor).forEach {
+            klass.fields += Variable(it.type.cfgType, it.toCfgName())
+        }
+        val interfaces = classDescriptor.implementedInterfaces.map { it.cfgKlass }
+        val superclass = classDescriptor.getSuperClassOrAny().cfgKlass
+        klass.supers  += interfaces
+        klass.supers  += superclass
+        klass.methods += classDescriptor.contributedMethods.map { it.cfgFunction }
         return klass
     }
 
-    private fun createFunctionDeclaration(declaration: IrFunction): Function {
-        val name = declaration.descriptor.toCfgName()
-        return Function(name)
+    val FunctionDescriptor.cfgFunction: Function
+        get() {
+            if (this !in functions) {
+                val function = Function(this.toCfgName(), this.returnType?.cfgType ?: TypeUnit)
+                function.parameters += this.valueParameters.map {
+                    Variable(it.type.cfgType, it.name.asString())
+                }
+                functions[this] = function
+                funcMetas[function] = this.metaInfo
+            }
+            return functions[this]!!
+        }
+
+    /**
+     * All fields of the class instance.
+     * The order respects the class hierarchy, i.e. a class [fields] contains superclass [fields] as a prefix.
+     */
+    private fun getFields(classDescriptor: ClassDescriptor): List<PropertyDescriptor> {
+        val superClass = classDescriptor.getSuperClassNotAny() // TODO: what if Any has fields?
+        val superFields = if (superClass != null) getFields(superClass) else emptyList()
+
+        return superFields + getDeclaredFields(classDescriptor)
     }
 
+    /**
+     * Fields declared in the class.
+     */
+    private fun getDeclaredFields(classDescriptor: ClassDescriptor): List<PropertyDescriptor> {
+        // TODO: Here's what is going on here:
+        // The existence of a backing field for a property is only described in the IR,
+        // but not in the PropertyDescriptor.
+        //
+        // We mark serialized properties with a Konan protobuf extension bit,
+        // so it is present in DeserializedPropertyDescriptor.
+        //
+        // In this function we check the presence of the backing filed
+        // two ways: first we check IR, then we check the protobuf extension.
+
+        val irClass = context.ir.moduleIndexForCodegen.classes[classDescriptor]
+        val fields = if (irClass != null) {
+            val declarations = irClass.declarations
+
+            declarations.mapNotNull {
+                when (it) {
+                    is IrProperty -> it.backingField?.descriptor
+                    is IrField -> it.descriptor
+                    else -> null
+                }
+            }
+        } else {
+            val properties = classDescriptor.unsubstitutedMemberScope.
+                    getContributedDescriptors().
+                    filterIsInstance<DeserializedPropertyDescriptor>()
+
+            properties.mapNotNull { it.backingField }
+        }
+        return fields.sortedBy {
+            it.fqNameSafe.localHash.value
+        }
+    }
+
+    val CallableDescriptor.containingClass: Klass?
+        get() {
+            val dispatchReceiverParameter = this.dispatchReceiverParameter
+            if (dispatchReceiverParameter != null) {
+                val containingClass = dispatchReceiverParameter.containingDeclaration
+                return classes[containingClass] ?: error(containingClass.toString())
+            } else {
+                return null
+            }
+        }
+
+    private val FunctionDescriptor.metaInfo: FunctionMetaInfo
+        get() = FunctionMetaInfo(this.isExported(), this.isIntrinsic, this.isExternal, if (this.isExported()) this.symbolName else this.name.asString())
+
+    private val ClassDescriptor.metaInfo: KlassMetaInfo
+        get() {
+            val vtableSize = if (!isAbstract()) {
+                context.getVtableBuilder(this).vtableEntries.size
+            } else {
+                0
+            }
+            return KlassMetaInfo(this.isExported(), isExternal(this), this.isAbstract(), vtableSize)
+        }
 }
 
 //-------------------------------------------------------------------------//

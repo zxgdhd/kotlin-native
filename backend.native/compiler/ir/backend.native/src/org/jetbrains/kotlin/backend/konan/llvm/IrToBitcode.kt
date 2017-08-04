@@ -430,7 +430,6 @@ internal class CodeGeneratorVisitor(val context: Context) : IrElementVisitorVoid
                 super.genContinue(destination)
         }
     }
-
     //-------------------------------------------------------------------------//
 
     fun evaluateBreak(destination: IrBreak): LLVMValueRef {

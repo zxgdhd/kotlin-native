@@ -110,6 +110,7 @@ public fun runTopLevelPhases(konanConfig: KonanConfig, environment: KotlinCoreEn
         }
         phaser.phase(KonanPhase.CFG) {
             CfgSelector(context).select()
+            produceOutput(context)
         }
         phaser.phase(KonanPhase.BITCODE) {
             emitLLVM(context)

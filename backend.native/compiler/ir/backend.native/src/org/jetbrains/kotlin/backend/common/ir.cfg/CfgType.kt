@@ -6,47 +6,38 @@ sealed class Type {
     abstract val byteSize: Int
 
     object boolean: Type() { override val byteSize: Int get() = 1 }
-    object byte   : Type() { override val byteSize: Int get() = 2 }
+    object byte   : Type() { override val byteSize: Int get() = 1 }
     object short  : Type() { override val byteSize: Int get() = 2 }
     object int    : Type() { override val byteSize: Int get() = 4 }
     object long   : Type() { override val byteSize: Int get() = 8 }
     object float  : Type() { override val byteSize: Int get() = 4 }
     object double : Type() { override val byteSize: Int get() = 8 }
     object char   : Type() { override val byteSize: Int get() = 2 }
-    class ptr<out T>(val value: T) : Type() { override val byteSize: Int get() = 8 }
+
+    open class ptr : Type() { override val byteSize: Int get() = 8 }
+    class KlassPtr(val klass: Klass): ptr()
+    object FunctionPtr              : ptr()
+    object BlockPtr                 : ptr()
+    object FieldPtr                 : ptr()
 
     override fun toString() = asString()
 }
 
 //--- Predefined types --------------------------------------------------------//
 
-val TypeBoolean  = Type.boolean
-val TypeByte     = Type.byte
-val TypeShort    = Type.short
-val TypeInt      = Type.int
-val TypeLong     = Type.long
-val TypeFloat    = Type.float
-val TypeDouble   = Type.double
-val TypeChar     = Type.char
-val TypeUnit     = Type.ptr("unit")             // Invalid pointer
-val TypeString   = Type.ptr("string")           // Pointer to string constant
-val TypeFunction = Type.ptr("function")         // Pointer to function
-val TypeField    = Type.ptr("field")            // Pointer to an object field
-val TypeBlock    = Type.ptr("block")            // Pointer to basic block
-val TypeClass    = Type.ptr("class")            // Pointer to class' type info. // TODO: find another way to handle it
-val TypePtr      = Type.ptr("ptr")              // Pointer to any object we know nothing about
+val unitKlass = Klass("Unit")
+val TypeUnit = Type.KlassPtr(unitKlass) // TODO: workaround. Add builtins
+val TypeString = Type.KlassPtr(Klass("String"))
 
 //--- Utils -------------------------------------------------------------------//
 
-fun Type.fieldOffset(fieldName: String): Int {
-    if (this !is Type.ptr<*>) return -1
-    if (value !is Klass)      return -1
+fun Type.KlassPtr.fieldOffset(fieldName: String): Int {
     var offset = 0
-    value.fields.forEach { field ->
+    klass.fields.forEach { field ->
         if (field.name == fieldName) return offset
         offset += field.type.byteSize
     }
-    println("ERROR: No field $fieldName found in class $value")
+    println("ERROR: No field $fieldName found in class $klass")
     return -1
 }
 

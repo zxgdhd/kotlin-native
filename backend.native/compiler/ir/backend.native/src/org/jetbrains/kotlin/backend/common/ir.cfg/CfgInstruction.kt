@@ -15,7 +15,7 @@ class Br(val target: Block)
 class Ret(val value: Operand = CfgNull)
     : Instruction(listOf(value))
 
-class Mov(def: Variable, use: Operand)
+class Mov(val def: Variable, val use: Operand)
     : Instruction(listOf(use), listOf(def))
 
 class Load(def: Variable, address: Operand, offset: Constant)
@@ -28,13 +28,13 @@ class Landingpad(exception: Variable)
     : Instruction(listOf(exception))
 
 class InstanceOf(val def: Variable, val value: Operand, val type: Type)
-    : Instruction(listOf(value, Constant(TypePtr, type)), listOf(def))
+    : Instruction(listOf(value, Constant(Type.ptr(), type)), listOf(def))
 
 class NotInstanceOf(val def: Variable, val value: Operand, val type: Type)
-    : Instruction(listOf(value, Constant(TypePtr, type)), listOf(def))
+    : Instruction(listOf(value, Constant(Type.ptr(), type)), listOf(def))
 
-class Alloc(def: Variable, val className: String)
-    : Instruction(listOf(Constant(TypeClass, className)), listOf(def))
+class Alloc(def: Variable, val klass: Klass)
+    : Instruction(listOf(Constant(Type.KlassPtr(klass), klass)), listOf(def))
 
 class Cast(def: Variable, use: Operand)
     : Instruction(listOf(use), listOf(def))
@@ -46,7 +46,13 @@ class Trunk(def: Variable, use: Operand)
     : Instruction(listOf(use), listOf(def))
 
 class Gstore(val fieldName: String, val initializer: Operand)
-    : Instruction(listOf(Constant(TypeField, fieldName), initializer))
+    : Instruction(listOf(Constant(Type.FieldPtr, fieldName), initializer))
+
+class Bitcast(def: Variable, rawPointer: Operand, pointerType: Type)
+    : Instruction(listOf(rawPointer, Constant(Type.ptr(), pointerType)), listOf(def))
+
+class Gep(def: Variable, base: Operand, index: Operand)
+    : Instruction(listOf(base, index), listOf(def))
 
 sealed class BinOp(def: Variable, op1: Operand, op2: Operand)
     : Instruction(listOf(op1, op2), listOf(def)) {
@@ -55,4 +61,7 @@ sealed class BinOp(def: Variable, op1: Operand, op2: Operand)
     class Mul(def: Variable, op1: Operand, op2: Operand) : BinOp(def, op1, op2)
     class Sdiv(def: Variable, op1: Operand, op2: Operand) : BinOp(def, op1, op2)
     class Srem(def: Variable, op1: Operand, op2: Operand) : BinOp(def, op1, op2)
+    class IcmpNE(def: Variable, op1: Operand, op2: Operand) : BinOp(def, op1, op2)
+    class IcmpEq(def: Variable, op1: Operand, op2: Operand) : BinOp(def, op1, op2)
+    class FcmpEq(def: Variable, op1: Operand, op2: Operand) : BinOp(def, op1, op2)
 }

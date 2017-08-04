@@ -2,7 +2,7 @@ package org.jetbrains.kotlin.backend.common.ir.cfg
 
 //-----------------------------------------------------------------------------//
 
-abstract class Operand(val type: Type) {
+abstract class Operand(var type: Type) {
     val uses = mutableListOf<Instruction>()                                    // Instructions using this operand.
     val defs = mutableListOf<Instruction>()                                    // Instructions defining this operand.
 }
@@ -15,7 +15,8 @@ class Constant(type: Type, val value: Any): Operand(type) {                    /
 
 //-----------------------------------------------------------------------------//
 
-class Variable(type: Type, val name: String): Operand(type) {                  // Operand which value is unknown at compile time.
+// TODO: remove isVar
+class Variable(type: Type, val name: String, val isVar: Boolean = false): Operand(type) {                  // Operand which value is unknown at compile time.
     override fun toString() = asString()
 }
 

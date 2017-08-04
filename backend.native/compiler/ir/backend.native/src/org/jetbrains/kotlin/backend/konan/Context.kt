@@ -23,6 +23,8 @@ import org.jetbrains.kotlin.backend.common.validateIrModule
 import org.jetbrains.kotlin.backend.jvm.descriptors.initialize
 import org.jetbrains.kotlin.backend.konan.descriptors.*
 import org.jetbrains.kotlin.backend.common.DumpIrTreeWithDescriptorsVisitor
+import org.jetbrains.kotlin.backend.common.ir.cfg.CfgDeclarations
+import org.jetbrains.kotlin.backend.common.ir.cfg.bitcode.CfgLlvmDeclarations
 import org.jetbrains.kotlin.backend.konan.ir.KonanIr
 import org.jetbrains.kotlin.backend.konan.library.KonanLibraryWriter
 import org.jetbrains.kotlin.backend.konan.library.LinkData
@@ -209,6 +211,9 @@ internal class Context(config: KonanConfig) : KonanBackendContext(config) {
     lateinit var llvmDeclarations: LlvmDeclarations
     lateinit var bitcodeFileName: String
     lateinit var library: KonanLibraryWriter
+
+    val cfgDeclarations: CfgDeclarations by lazy { CfgDeclarations() }
+    lateinit var cfgLlvmDeclarations: CfgLlvmDeclarations
 
     var phase: KonanPhase? = null
     var depth: Int = 0
