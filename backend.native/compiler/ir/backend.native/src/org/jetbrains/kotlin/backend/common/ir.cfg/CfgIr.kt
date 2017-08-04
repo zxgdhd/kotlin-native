@@ -26,6 +26,11 @@ abstract class Instruction(
     val uses: List<Operand> = listOf<Operand>(),                               // Operands used by this instruction.
     val defs: List<Variable> = listOf<Variable>()) {                           // Operands defined by this instruction.
     override fun toString() = asString()
+
+    init {
+        uses.forEach { it.uses += this }
+        defs.forEach { it.defs += this }
+    }
 }
 
 //-----------------------------------------------------------------------------//
