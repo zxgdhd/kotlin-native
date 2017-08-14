@@ -4,11 +4,11 @@ import java.io.File
 
 //-----------------------------------------------------------------------------//
 
-fun dotFunction(enter: Block, name: String="graph") {
+fun dotFunction(function: Function) {
 
     createDotDir()
-    val dotFile = File("out_dot/$name.dot")
-    val blocks = search(enter)
+    val dotFile = File("out_dot/${function.name}.dot")
+    val blocks = function.blocks
     dotFile.printWriter().use { out ->
         out.println("digraph {")
         out.println("node [shape=record, style=rounded, penwidth=0.5, fontname=Menlo, fontsize=10];")

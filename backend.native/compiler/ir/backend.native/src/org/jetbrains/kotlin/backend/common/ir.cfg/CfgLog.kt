@@ -90,9 +90,8 @@ fun Block.log() {
 //-----------------------------------------------------------------------------//
 
 fun Function.log() {
-    println("\nfun $this {")                                                     // Print selectFunction declaration.
-    val blocks = search(enter)                                                                      // Get basic blocks of selectFunction body.
-    blocks.reversed().forEach(Block::log)                                                           // Print the blocks.
+    println("\nfun $this {")                                                            // Print selectFunction declaration.
+    blocks.reversed().forEach(Block::log)                                               // Print the blocks.
     println("}")
 }
 
@@ -112,7 +111,7 @@ fun Ir.log() {
     klasses.forEach { it.value.log() }
     if (functions.isNotEmpty()) println("\n//--- Functions -------------------------------------------//")
     functions.forEach { it.value.log() }
-    functions.forEach { (_, f) -> f.enter.let { dotFunction(it, f.name)} }
+    functions.forEach { (_, f) -> dotFunction(f) }
 }
 
 //-----------------------------------------------------------------------------//

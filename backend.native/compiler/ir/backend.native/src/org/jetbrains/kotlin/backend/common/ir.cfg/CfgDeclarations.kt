@@ -1,5 +1,6 @@
 package org.jetbrains.kotlin.backend.common.ir.cfg
 
+import org.jetbrains.kotlin.backend.common.descriptors.allParameters
 import org.jetbrains.kotlin.backend.konan.Context
 import org.jetbrains.kotlin.backend.konan.ValueType
 import org.jetbrains.kotlin.backend.konan.correspondingValueType
@@ -120,7 +121,7 @@ internal interface TypeResolver : RuntimeAware {
         get() {
             if (this !in functions) {
                 val function = Function(this.toCfgName(), this.returnType?.cfgType ?: TypeUnit)
-                function.parameters += this.valueParameters.map {
+                function.parameters += this.allParameters.map {
                     Variable(it.type.cfgType, it.name.asString())
                 }
                 functions[this] = function
@@ -128,6 +129,7 @@ internal interface TypeResolver : RuntimeAware {
             }
             return functions[this]!!
         }
+
 
     /**
      * All fields of the class instance.

@@ -16,15 +16,16 @@ fun Instruction.isTerminal() =
 //--- Block -------------------------------------------------------------------//
 
 fun Block.addSuccessor(successor: Block) {
-    successors.add(successor)
-    successor.predecessors.add(this)
+    successors += successor
+    successor.predecessors += this
 }
 
 //-----------------------------------------------------------------------------//
 
-fun Block.inst(instruction: Instruction): Operand {
+fun Block.inst(instruction: Instruction): Variable {
+    instructions += instruction
 
-    val ret: Variable = when (instruction) {
+    return when (instruction) {
         is Invoke -> {
             addSuccessor(instruction.landingpad)
             instruction.def
@@ -37,13 +38,15 @@ fun Block.inst(instruction: Instruction): Operand {
         is Br -> {
             addSuccessor(instruction.target)
             CfgUnit
-
         }
-        is InstanceOf -> instruction.def
-        else -> CfgUnit
+        is Call         -> instruction.def
+        is Alloc        -> instruction.def
+        is InstanceOf   -> instruction.def
+        is GT0          -> instruction.def
+        is LT0          -> instruction.def
+        is BinOp        -> instruction.def
+        else            -> CfgUnit
     }
-    instructions += instruction
-    return ret
 }
 
 //-----------------------------------------------------------------------------//
@@ -59,7 +62,11 @@ val Block.ptr: Constant
 //--- Function ----------------------------------------------------------------//
 
 fun Function.newBlock(name: String = "block") = Block(genBlockName(name))
-fun Function.addValueParameters(parameters: List<Variable>) { this.parameters.addAll(parameters) }
+
+//-----------------------------------------------------------------------------//
+
+val Function.blocks
+    get() = search(this.enter)
 
 //-----------------------------------------------------------------------------//
 
@@ -74,7 +81,7 @@ fun Ir.addFunction(function: Function) { functions[function.name] = function }
 //-----------------------------------------------------------------------------//
 // Build direct-ordered list of blocks in graph starting with "enter" block
 
-fun search(enter: Block): List<Block> {
+private fun search(enter: Block): List<Block> {
     val result  = mutableListOf<Block>()
     val visited = mutableSetOf<Block>()
     val workSet = mutableListOf(enter)

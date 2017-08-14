@@ -1,15 +1,11 @@
 package org.jetbrains.kotlin.backend.common.ir.cfg.bitcode
 
-import kotlinx.cinterop.cValuesOf
 import llvm.*
 import org.jetbrains.kotlin.backend.common.ir.cfg.*
 import org.jetbrains.kotlin.backend.common.ir.cfg.Function
 import org.jetbrains.kotlin.backend.konan.*
-import org.jetbrains.kotlin.backend.konan.library.impl.buildLibrary
-import org.jetbrains.kotlin.backend.konan.llvm.*
-import org.jetbrains.kotlin.ir.declarations.IrField
-import org.jetbrains.kotlin.konan.target.CompilerOutputKind
-import org.jetbrains.kotlin.name.Name
+import org.jetbrains.kotlin.backend.konan.llvm.getFunctionType
+import org.jetbrains.kotlin.backend.konan.llvm.voidType
 
 
 internal fun emitBitcodeFromCfg(context: Context) {
@@ -22,17 +18,11 @@ internal class CfgToBitcode(
         override val context: Context
 ) : BitcodeSelectionUtils {
     private val codegen = CodeGenerator(context)
-    private val variableManager = VariableManager(codegen)
 
-    private val kVoidFuncType : LLVMTypeRef = LLVMFunctionType(LLVMVoidType(), null, 0, 0)!!
-    private val kInitFuncType : LLVMTypeRef = LLVMFunctionType(LLVMVoidType(), cValuesOf(LLVMInt32Type()), 1, 0)!!
-    private val kNodeInitType : LLVMTypeRef = LLVMGetTypeByName(context.llvmModule, "struct.InitNode")!!
-    private val kImmZero      : LLVMValueRef = LLVMConstInt(LLVMInt32Type(),  0, 1)!!
-    private val kImmOne       : LLVMValueRef = LLVMConstInt(LLVMInt32Type(),  1, 1)!!
-    private val kTrue         : LLVMValueRef = LLVMConstInt(LLVMInt1Type(),   1, 1)!!
-    private val kFalse        : LLVMValueRef = LLVMConstInt(LLVMInt1Type(),   0, 1)!!
+    private val variableManager: VariableManager
+        get() = codegen.variableManager
 
-    private val objects = mutableSetOf<LLVMValueRef>()
+    private val registers = mutableMapOf<Variable, LLVMValueRef>()
 
     init {
         context.cfgLlvmDeclarations = createCfgLlvmDeclarations(context)
@@ -40,26 +30,14 @@ internal class CfgToBitcode(
 
     fun select() {
         ir.functions.values.forEach { selectFunction(it) }
+        val main = ir.functions.values.find { it.name == "main" }!!
+        val entryFunction = entryPointSelector(
+                main.llvmFunction,
+                getFunctionType(main.llvmFunction),
+                "EntryPointSelector"
+        )
 
-        val fileName = "TODO"
-        val initName = "${fileName}_init_${context.llvm.globalInitIndex}"
-        val nodeName = "${fileName}_node_${context.llvm.globalInitIndex}"
-        val ctorName = "${fileName}_ctor_${context.llvm.globalInitIndex++}"
-
-        val initFunction = createInitBody(initName)
-        val initNode = createInitNode(initFunction, nodeName)
-        createInitCtor(ctorName, initNode)
-
-        appendEntryPointSelector(ir.functions.values.find { it.name == "main" }!!)
-    }
-
-    private fun appendEntryPointSelector(entry: Function) {
-        val entryPoint = entry.llvmFunction
-        val selectorName = "EntryPointSelector"
-        val entryPointType = getFunctionType(entryPoint)!!
-        val selector = entryPointSelector(entryPoint, entryPointType, selectorName)
-
-        LLVMSetLinkage(selector, LLVMLinkage.LLVMExternalLinkage)
+        LLVMSetLinkage(entryFunction, LLVMLinkage.LLVMExternalLinkage)
     }
 
     fun entryPointSelector(entryPoint: LLVMValueRef,
@@ -68,127 +46,117 @@ internal class CfgToBitcode(
         assert(LLVMCountParams(entryPoint) == 1)
 
         val selector = LLVMAddFunction(context.llvmModule, selectorName, entryPointType)!!
-        codegen.prologue(selector, voidType)
-
-        // Note, that 'parameter' is an object reference, and as such, shall
-        // be accounted for in the rootset. However, current object management
-        // scheme for arguments guarantees, that reference is being held in C++
-        // launcher, so we could optimize out creating slot for 'parameter' in
-        // this function.
-        val parameter = LLVMGetParam(selector, 0)!!
-        codegen.callAtFunctionScope(entryPoint, listOf(parameter), Lifetime.IRRELEVANT)
-
-        codegen.ret(null)
+        var bb: LLVMBasicBlockRef? = null
+        codegen.prologue(selector, voidType) {
+            bb = LLVMAppendBasicBlock(selector, "enter")!!
+            bb!!
+        }
+        codegen.appendingTo(bb!!) {
+            val parameter = LLVMGetParam(selector, 0)!!
+            codegen.call(entryPoint, listOf(parameter))
+            codegen.ret(null)
+        }
         codegen.epilogue()
         return selector
     }
 
-    fun createInitBody(initName: String): LLVMValueRef {
-        val initFunction = LLVMAddFunction(context.llvmModule, initName, kInitFuncType)!!
-        codegen.prologue(initFunction, voidType)
-
-        val bbInit = codegen.basicBlock("init")
-        val bbDeinit = codegen.basicBlock("deinit")
-        codegen.condBr(codegen.icmpEq(LLVMGetParam(initFunction, 0)!!, kImmZero), bbDeinit, bbInit)
-
-        codegen.appendingTo(bbDeinit) {
-            context.llvm.fileInitializers.forEach {
-                val irField = it as IrField
-                val descriptor = irField.descriptor
-                if (descriptor.type.isValueType()) {
-                    return@forEach
-                }
-                val globalPtr = context.llvmDeclarations.forStaticField(descriptor).storage
-                codegen.storeAnyGlobal(codegen.kNullObjHeaderPtr, globalPtr)
-            }
-            objects.forEach { codegen.storeAnyGlobal(codegen.kNullObjHeaderPtr, it) }
-            codegen.ret(null)
-        }
-
-        codegen.appendingTo(bbInit) {
-            context.llvm.fileInitializers.forEach {
-                val irField = it as IrField
-                val descriptor = irField.descriptor
-//                val initialization =
-//                val globalPtr = context.llvmDeclarations.forStaticField(descriptor).storage
-//                codegen.storeAnyGlobal(initialization, globalPtr)
-            }
-            codegen.ret(null)
-        }
-        codegen.epilogue()
-
-        return initFunction
-    }
-
-    fun createInitNode(initFunction: LLVMValueRef, nodeName: String): LLVMValueRef {
-        val nextInitNode = LLVMConstNull(pointerType(kNodeInitType))
-        val argList = cValuesOf(initFunction, nextInitNode)
-        val initNode = LLVMConstNamedStruct(kNodeInitType, argList, 2)!!
-        return context.llvm.staticData.placeGlobal(nodeName, constPointer(initNode)).llvmGlobal
-    }
-
-    fun createInitCtor(ctorName: String, initNodePtr: LLVMValueRef) {
-        val ctorFunction = LLVMAddFunction(context.llvmModule, ctorName, kVoidFuncType)!!
-        codegen.prologue(ctorFunction, voidType)
-        codegen.call(context.llvm.appendToInitalizersTail, listOf(initNodePtr))
-        codegen.ret(null)
-        codegen.epilogue()
-        context.llvm.staticInitializers.add(ctorFunction)
-    }
 
     fun selectFunction(function: Function) {
         // TODO: handle init func
         if (function.name == "global-init") {
             return
         }
-        val llvmFunction = function.llvmFunction
-        codegen.prologue(llvmFunction, voidType)
-        selectBlock(function.enter)
-        if (!codegen.isAfterTerminator()) {
-            if (codegen.returnType == voidType)
-                codegen.ret(null)
-            else
-                codegen.unreachable()
+        codegen.prologue(function)
+        function.parameters.forEachIndexed { paramNum, arg ->
+            registers[arg] = codegen.param(function.llvmFunction, paramNum)
         }
+        function.blocks.forEach { selectBlock(it) }
         codegen.epilogue()
+        registers.clear()
     }
 
     private fun selectBlock(block: Block) {
-        val basicBlock = codegen.basicBlock(block.name)
-        codegen.br(basicBlock)
-        codegen.positionAtEnd(basicBlock)
-        block.instructions.forEach { selectInstruction(it) }
+        codegen.appendingTo(codegen.llvmBlockFor(block)) {
+            block.instructions.forEach { selectInstruction(it) }
+
+            // TODO: add return on cfg
+            if (!codegen.isAfterTerminator()) {
+                if (codegen.returnType == voidType)
+                    codegen.ret(null)
+                else
+                    codegen.unreachable()
+            }
+        }
     }
 
     private fun selectInstruction(instruction: Instruction) {
         when (instruction) {
-            is Call -> selectCall(instruction)
-            is Ret -> selectRet(instruction)
-            is Mov  -> selectMov(instruction)
+            is Call     -> selectCall(instruction)
+//            is Invoke   -> selectInvoke(instruction)
+            is Ret      -> selectRet(instruction)
+            is Br       -> selectBr(instruction)
+            is Condbr   -> selectCondbr(instruction)
+            is Store    -> selectStore(instruction)
+            is Alloc    -> selectAlloc(instruction)
+            is GT0      -> selectGT0(instruction)
+            is LT0      -> selectLT0(instruction)
+            is BinOp    -> selectBinOp(instruction)
         }
     }
 
-    private fun selectMov(mov: Mov) {
-        val variable = selectVariable(mov.def)
-        variableManager.store(selectOperand(mov.use), variableManager.indexOf(mov.def))
+    private fun selectBinOp(binOp: BinOp) {
+        registers[binOp.def] = when (binOp) {
+            is BinOp.Add    -> codegen::plus
+            is BinOp.Srem   -> codegen::srem
+            is BinOp.Sub    -> codegen::minus
+            is BinOp.Mul    -> codegen::mul
+            is BinOp.Sdiv   -> codegen::div
+            else -> error("$binOp is not implemented yet")
+        }(selectOperand(binOp.op1), selectOperand(binOp.op2), "")
     }
 
-    private fun selectRet(ret: Ret) {
-        // TODO: use ret value
-        codegen.ret(null)
+    private fun selectLT0(instruction: LT0) {
+        registers[instruction.def] = codegen.icmpLt(selectOperand(instruction.arg), codegen.kImmZero)
     }
+
+    private fun selectGT0(instruction: GT0) {
+        registers[instruction.def] = codegen.icmpGt(selectOperand(instruction.arg), codegen.kImmZero)
+    }
+
+    private fun selectAlloc(alloc: Alloc) {
+        registers[alloc.def] = variableManager.addressOf(variableManager.createVariable(alloc.def))
+    }
+
+    private fun selectStore(store: Store) {
+        val value = selectOperand(store.value)
+        val address = store.address.address
+        codegen.store(value, address)
+    }
+
+    private fun selectInvoke(invoke: Invoke): Nothing {
+        TODO("INVOKE is not implemented yet")
+    }
+
+    private fun selectBr(br: Br) = codegen.br(codegen.llvmBlockFor(br.target))
+
+    private fun selectCondbr(condbr: Condbr) = codegen.condbr(
+            selectOperand(condbr.condition),
+            codegen.llvmBlockFor(condbr.targetTrue),
+            codegen.llvmBlockFor(condbr.targetFalse)
+    )
+
+    private fun selectRet(ret: Ret) = codegen.ret(selectOperand(ret.value))
 
     private fun selectCall(call: Call) {
-        codegen.callAtFunctionScope(
+        registers[call.def] = codegen.call(
                 call.callee.llvmFunction,
-                call.args.map { selectOperand(it)},
-                Lifetime.IRRELEVANT
+                call.args.map { selectOperand(it) }
         )
     }
 
     fun selectConst(const: Constant): LLVMValueRef {
         return when(const.type) {
-            Type.boolean -> if (const.value as Boolean) kTrue else kFalse
+            Type.boolean -> if (const.value as Boolean) codegen.kTrue else codegen.kFalse
             Type.byte -> LLVMConstInt(LLVMInt8Type(), (const.value as Byte).toLong(), 1)!!
             Type.char -> LLVMConstInt(LLVMInt16Type(), (const.value as Char).toLong(), 0)!!
             Type.short -> LLVMConstInt(LLVMInt16Type(), (const.value as Short).toLong(), 1)!!
@@ -198,26 +166,38 @@ internal class CfgToBitcode(
             Type.double -> LLVMConstRealOfString(LLVMDoubleType(), (const.value as Double).toString())!!
             TypeString -> context.llvm.staticData.kotlinStringLiteral(
                     context.builtIns.stringType, const.value as String).llvm
-            TypeUnit -> kTrue //codegen.theUnitInstanceRef.llvm // TODO: Add support for unit const
+            TypeUnit -> codegen.kTrue //codegen.theUnitInstanceRef.llvm // TODO: Add support for unit const
             else            -> TODO("Const ${const.type} is not implemented yet")
         }
     }
 
-    fun selectVariable(variable: Variable): LLVMValueRef {
-        val indexOf = variableManager.indexOf(variable)
-        val index = if (indexOf < 0) {
-            variableManager.createVariable(variable)
-        } else {
-            indexOf
-        }
-        return variableManager.load(index)
+    fun selectOperand(it: Operand): LLVMValueRef = when(it) {
+        is Variable -> it.value
+        is Constant -> selectConst(it)
+        else        -> error("Unexpected operand type")
     }
 
-    fun selectOperand(it: Operand): LLVMValueRef {
-        return when(it) {
-            is Variable -> selectVariable(it)
-            is Constant -> selectConst(it)
-            else        -> error("Unexpected operand type")
+    val Variable.address: LLVMValueRef
+        get() {
+            val indexOf = variableManager.indexOf(this)
+            assert(indexOf >= 0, { "Variable $this is not exists." })       // variable should already exist
+            return variableManager.addressOf(indexOf)
         }
-    }
+
+    val Variable.value: LLVMValueRef
+        get() {
+            val indexOf = variableManager.indexOf(this)
+            if (indexOf == -1) {
+                if (registers[this] == null) {
+                    for (register in registers) {
+                        println(register)
+                    }
+                    error("No value for $this")
+                } else {
+                    return registers[this]!!
+                }
+            }
+            return variableManager.load(indexOf)
+        }
+
 }

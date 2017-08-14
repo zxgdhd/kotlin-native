@@ -133,9 +133,9 @@ internal val kInt8PtrPtr   = pointerType(kInt8Ptr)
 internal val kNullInt8Ptr  = LLVMConstNull(kInt8Ptr)!!
 internal val kImmInt32One  = Int32(1).llvm
 internal val kImmInt64One  = Int64(1).llvm
-internal val ContextUtils.kNullObjHeaderPtr: LLVMValueRef
+internal val RuntimeAware.kNullObjHeaderPtr: LLVMValueRef
     get() = LLVMConstNull(this.kObjHeaderPtr)!!
-internal val ContextUtils.kNullObjHeaderPtrPtr: LLVMValueRef
+internal val RuntimeAware.kNullObjHeaderPtrPtr: LLVMValueRef
     get() = LLVMConstNull(this.kObjHeaderPtrPtr)!!
 
 // Nothing type has no values, but we do generate unreachable code and thus need some fake value:
@@ -149,7 +149,7 @@ internal fun structType(vararg types: LLVMTypeRef): LLVMTypeRef = structType(typ
 internal fun structType(types: List<LLVMTypeRef>): LLVMTypeRef =
     LLVMStructType(types.toCValues(), types.size, 0)!!
 
-internal fun ContextUtils.numParameters(functionType: LLVMTypeRef) : Int {
+internal fun RuntimeAware.numParameters(functionType: LLVMTypeRef) : Int {
     // Note that type is usually function pointer, so we have to dereference it.
     return LLVMCountParamTypes(LLVMGetElementType(functionType))!!
 }
@@ -160,7 +160,7 @@ internal fun RuntimeAware.isObjectReturn(functionType: LLVMTypeRef) : Boolean {
     return isObjectType(returnType)
 }
 
-internal fun ContextUtils.isObjectRef(value: LLVMValueRef): Boolean {
+internal fun RuntimeAware.isObjectRef(value: LLVMValueRef): Boolean {
     return isObjectType(value.type)
 }
 

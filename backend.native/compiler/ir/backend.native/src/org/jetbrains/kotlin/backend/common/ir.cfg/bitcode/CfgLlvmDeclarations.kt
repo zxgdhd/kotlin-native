@@ -115,7 +115,7 @@ internal fun RuntimeAware.getLlvmType(type: Type): LLVMTypeRef {
         Type.double -> LLVMDoubleType()!!
         Type.char -> LLVMInt16Type()!!
         is Type.KlassPtr -> {
-            if (type.klass == unitKlass) LLVMVoidType()!! else kObjHeaderPtr
+            if (type.klass == unitKlass) voidType else kObjHeaderPtr
         }
         is Type.ptr -> int8TypePtr
     }

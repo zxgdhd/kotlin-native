@@ -2,6 +2,8 @@ package org.jetbrains.kotlin.backend.common.ir.cfg
 
 //-----------------------------------------------------------------------------//
 
+// TODO: introduce tmp val?
+
 sealed class Type {
     abstract val byteSize: Int
 

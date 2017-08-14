@@ -1,6 +1,6 @@
 package org.jetbrains.kotlin.backend.common.ir.cfg
 
-class Call(val callee: Function, def: Variable, val args: List<Operand>)
+class Call(val callee: Function, val def: Variable, val args: List<Operand>)
     : Instruction(args + listOf(callee.ptr), listOf(def))
 
 class Invoke(val callee: Function, val def: Variable, val args: List<Operand>, val landingpad: Block)
@@ -21,7 +21,7 @@ class Mov(val def: Variable, val use: Operand)
 class Load(def: Variable, address: Operand, offset: Constant)
     : Instruction(listOf(address, offset), listOf(def))
 
-class Store(value: Operand, address: Operand, offset: Constant)
+class Store(val value: Operand, val address: Variable, val offset: Constant = Cfg0)
     : Instruction(listOf(value, address, offset))
 
 class Landingpad(exception: Variable)
@@ -33,8 +33,8 @@ class InstanceOf(val def: Variable, val value: Operand, val type: Type)
 class NotInstanceOf(val def: Variable, val value: Operand, val type: Type)
     : Instruction(listOf(value, Constant(Type.ptr(), type)), listOf(def))
 
-class Alloc(def: Variable, val klass: Klass)
-    : Instruction(listOf(Constant(Type.KlassPtr(klass), klass)), listOf(def))
+class Alloc(val def: Variable, val type: Type)
+    : Instruction(listOf(Constant(type, type)), listOf(def))
 
 class Cast(def: Variable, use: Operand)
     : Instruction(listOf(use), listOf(def))
@@ -54,7 +54,13 @@ class Bitcast(def: Variable, rawPointer: Operand, pointerType: Type)
 class Gep(def: Variable, base: Operand, index: Operand)
     : Instruction(listOf(base, index), listOf(def))
 
-sealed class BinOp(def: Variable, op1: Operand, op2: Operand)
+class GT0(val def: Variable, val arg: Operand)
+    : Instruction(listOf(arg), listOf(def))
+
+class LT0(val def: Variable, val arg: Operand)
+    : Instruction(listOf(arg), listOf(def))
+
+sealed class BinOp(val def: Variable, val op1: Operand, val op2: Operand)
     : Instruction(listOf(op1, op2), listOf(def)) {
     class Add(def: Variable, op1: Operand, op2: Operand) : BinOp(def, op1, op2)
     class Sub(def: Variable, op1: Operand, op2: Operand) : BinOp(def, op1, op2)

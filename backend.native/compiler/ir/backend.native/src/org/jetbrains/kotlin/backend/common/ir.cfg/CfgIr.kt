@@ -44,9 +44,7 @@ class Block(val name: String) {
 
 //-----------------------------------------------------------------------------//
 
-class Function(val name: String,
-               val returnType: Type     = TypeUnit
-) {
+class Function(val name: String, val returnType: Type = TypeUnit) {
     val parameters = mutableListOf<Variable>()
     val enter      = Block("enter")                                            // Enter block of function cfg.
 
@@ -60,7 +58,7 @@ class Function(val name: String,
 class Klass(val name: String) {
     val supers  = mutableListOf<Klass>()                                       // Superclass and interfaces.
     val methods = mutableListOf<Function>()                                    // Methods and property getters/setters.
-    val fields  = mutableListOf<Variable>()                                     // Backing fields.
+    val fields  = mutableListOf<Variable>()                                    // Backing fields.
     override fun toString() = name
 }
 

@@ -2,14 +2,8 @@ package org.jetbrains.kotlin.backend.common.ir.cfg.bitcode
 
 import llvm.*
 import org.jetbrains.kotlin.backend.common.ir.cfg.Variable
-import org.jetbrains.kotlin.backend.konan.llvm.CodeGenerator
-import org.jetbrains.kotlin.backend.konan.llvm.getLLVMType
 import org.jetbrains.kotlin.backend.konan.llvm.isObjectType
 import org.jetbrains.kotlin.backend.konan.llvm.kObjHeaderPtr
-import org.jetbrains.kotlin.descriptors.ValueDescriptor
-import org.jetbrains.kotlin.descriptors.VariableDescriptor
-import org.jetbrains.kotlin.name.Name
-
 
 
 internal class VariableManager(val codegen: CodeGenerator) {
@@ -23,18 +17,18 @@ internal class VariableManager(val codegen: CodeGenerator) {
         override fun load() : LLVMValueRef = codegen.loadSlot(address, isVar)
         override fun store(value: LLVMValueRef) = codegen.storeAnyLocal(value, address)
         override fun address() : LLVMValueRef = this.address
-        override fun toString() = (if (refSlot) "refslot" else "slot") + " for ${address}"
+        override fun toString() = (if (refSlot) "refslot" else "slot") + " for $address"
     }
 
     class ValueRecord(val value: LLVMValueRef, val name: String) : Record {
         override fun load() : LLVMValueRef = value
-        override fun store(value: LLVMValueRef) = throw Error("writing to immutable: ${name}")
-        override fun address() : LLVMValueRef = throw Error("no address for: ${name}")
-        override fun toString() = "value of ${value} from ${name}"
+        override fun store(value: LLVMValueRef) = throw Error("writing to immutable: $name")
+        override fun address() : LLVMValueRef = throw Error("no address for: $name")
+        override fun toString() = "value of $value from $name"
     }
 
-    val variables: ArrayList<Record> = arrayListOf()
-    val contextVariablesToIndex: HashMap<Variable, Int> = hashMapOf()
+    val variables = mutableListOf<Record>()
+    val contextVariablesToIndex = mutableMapOf<Variable, Int>()
 
     // Clears inner state of variable manager.
     fun clear() {
@@ -42,28 +36,37 @@ internal class VariableManager(val codegen: CodeGenerator) {
         contextVariablesToIndex.clear()
     }
 
-    fun createVariable(descriptor: Variable, value: LLVMValueRef? = null) : Int {
+    fun createVariable(variable: Variable, value: LLVMValueRef? = null) : Int {
         // Note that we always create slot for object references for memory management.
-        if (!descriptor.isVar && value != null)
-            return createImmutable(descriptor, value)
+        return if (!variable.isVar && value != null)
+            createImmutable(variable, value)
         else
         // Unfortunately, we have to create mutable slots here,
         // as even vals can be assigned on multiple paths. However, we use varness
         // knowledge, as anonymous slots are created only for true vars (for vals
         // their single assigner already have slot).
-            return createMutable(descriptor, descriptor.isVar, value)
+            createMutable(variable, variable.isVar, value)
     }
 
-    fun createMutable(descriptor: Variable,
+    fun createMutable(variable: Variable,
                       isVar: Boolean, value: LLVMValueRef? = null) : Int {
-        assert(!contextVariablesToIndex.contains(descriptor))
+        assert(variable !in contextVariablesToIndex)
         val index = variables.size
-        val type = codegen.getLlvmType(descriptor.type)
-        val slot = codegen.alloca(type, descriptor.name)
+        val type = codegen.getLlvmType(variable.type)
+        val slot = codegen.alloca(type, variable.name)
         if (value != null)
             codegen.storeAnyLocal(value, slot)
-        variables.add(SlotRecord(slot, codegen.isObjectType(type), isVar))
-        contextVariablesToIndex[descriptor] = index
+        variables += SlotRecord(slot, codegen.isObjectType(type), isVar)
+        contextVariablesToIndex[variable] = index
+        return index
+    }
+
+    fun createImmutable(variable: Variable, value: LLVMValueRef) : Int {
+        if (variable in contextVariablesToIndex)
+            throw Error("$variable is already defined")
+        val index = variables.size
+        variables += ValueRecord(value, variable.name)
+        contextVariablesToIndex[variable] = index
         return index
     }
 
@@ -79,32 +82,15 @@ internal class VariableManager(val codegen: CodeGenerator) {
         val slot = codegen.alloca(type)
         if (value != null)
             codegen.storeAnyLocal(value, slot)
-        variables.add(SlotRecord(slot, codegen.isObjectType(type), true))
+        variables += SlotRecord(slot, codegen.isObjectType(type), true)
         return index
     }
 
-    fun createImmutable(descriptor: Variable, value: LLVMValueRef) : Int {
-        if (contextVariablesToIndex.containsKey(descriptor))
-            throw Error("$descriptor is already defined")
-        val index = variables.size
-        variables.add(ValueRecord(value, descriptor.name))
-        contextVariablesToIndex[descriptor] = index
-        return index
-    }
+    fun indexOf(descriptor: Variable) : Int = contextVariablesToIndex[descriptor] ?: -1
 
-    fun indexOf(descriptor: Variable) : Int {
-        return contextVariablesToIndex.getOrElse(descriptor) { -1 }
-    }
+    fun addressOf(index: Int): LLVMValueRef = variables[index].address()
 
-    fun addressOf(index: Int): LLVMValueRef {
-        return variables[index].address()
-    }
+    fun load(index: Int): LLVMValueRef = variables[index].load()
 
-    fun load(index: Int): LLVMValueRef {
-        return variables[index].load()
-    }
-
-    fun store(value: LLVMValueRef, index: Int) {
-        variables[index].store(value)
-    }
+    fun store(value: LLVMValueRef, index: Int) = variables[index].store(value)
 }
