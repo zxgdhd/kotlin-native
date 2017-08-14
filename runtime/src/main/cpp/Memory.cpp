@@ -59,7 +59,7 @@ typedef KStdDeque<ContainerHeader*> ContainerHeaderDeque;
 #endif
 
 #if BATCH_ARC
-constexpr int kBatchSize = 16384;
+constexpr int kBatchSize = 16 * 1024;
 #endif
 
 }  // namespace
@@ -78,13 +78,6 @@ struct FrameOverlay {
 #endif
 };
 
-#if BACON_GC
-struct RootListItem {
-  ContainerHeader* container;
-  RootListItem *next;
-};
-#endif
-
 struct MemoryState {
   // Current number of allocated containers.
   int allocCount = 0;
@@ -101,7 +94,7 @@ struct MemoryState {
   ContainerHeaderDeque* finalizerQueue;
 
 #if BACON_GC
-  RootListItem* toFree = nullptr;
+  ContainerHeader* toFree = nullptr;
   uint32_t toFreeSize = 0;
 #else
   // Set of references to release.
@@ -127,6 +120,8 @@ struct MemoryState {
   ContainerHeader* decBatch[kBatchSize];
   int decBatchIndex;
 
+  uintptr_t stackMin;
+  uintptr_t stackMax;
   FrameOverlay* topmostFrame;
 #endif
 };
@@ -227,8 +222,6 @@ inline void IncrementRC(ContainerHeader* container) {
 inline void DecrementRC(ContainerHeader* container) {
   if ((container->refCount_ -= CONTAINER_TAG_INCREMENT) == CONTAINER_TAG_NORMAL) {
     FreeContainerHard(container);
-  } else {
-    addFreeable(state, container, false);
   }
 }
 
@@ -278,12 +271,16 @@ inline void DecrementRC(ContainerHeader* container) {
       setColor(container, CONTAINER_TAG_GC_PURPLE);
       if ((container->objectCount_ & CONTAINER_TAG_GC_BUFFERED) == 0) {
         container->objectCount_ |= CONTAINER_TAG_GC_BUFFERED;
-        auto nextItem = konanConstructInstance<RootListItem>();
-        nextItem->container = container;
+        auto nextItem = container;
         nextItem->next = memoryState->toFree;
         auto state = memoryState;
         state->toFree = nextItem;
         state->toFreeSize++;
+#if !BATCH_ARC
+        if (state->gcSuspendCount == 0 && freeableSize(state) > state->gcThreshold) {
+          GarbageCollect();
+        }
+#endif
       }
     }
   }
@@ -358,7 +355,11 @@ inline void DecrementRC(ContainerHeader* container) {
     FreeContainer(container);
 #endif
   } else {
+#if BATCH_ARC
     addFreeable(memoryState, container, false);
+#else
+    addFreeable(memoryState, container, true);
+#endif
   }
 }
 
@@ -390,40 +391,63 @@ inline void initThreshold(MemoryState* state, uint32_t gcThreshold) {
 #endif
   state->gcThreshold = gcThreshold;
 }
-
 #endif // USE_GC
+
+template<typename func>
+void traverseContainerReferredObjects(ContainerHeader* container, func process) {
+  ObjHeader* obj = reinterpret_cast<ObjHeader*>(container + 1);
+  for (int object = 0; object < container->objectCount(); object++) {
+    const TypeInfo* typeInfo = obj->type_info();
+    for (int index = 0; index < typeInfo->objOffsetsCount_; index++) {
+      ObjHeader** location = reinterpret_cast<ObjHeader**>(
+          reinterpret_cast<uintptr_t>(obj + 1) + typeInfo->objOffsets_[index]);
+      ObjHeader* ref = *location;
+      if (ref != nullptr) process(ref);
+    }
+    if (typeInfo == theArrayTypeInfo) {
+      ArrayHeader* array = obj->array();
+      for (int index = 0; index < array->count_; index++) {
+        ObjHeader* ref = *ArrayAddressOfElementAt(array, index);
+        if (ref != nullptr) process(ref);
+      }
+    }
+    obj = reinterpret_cast<ObjHeader*>(
+      reinterpret_cast<uintptr_t>(obj) + objectSize(obj));
+  }
+}
+
+template<typename func>
+void traverseContainerObjectFields(ContainerHeader* container, func process) {
+  ObjHeader* obj = reinterpret_cast<ObjHeader*>(container + 1);
+  for (int object = 0; object < container->objectCount(); object++) {
+    const TypeInfo* typeInfo = obj->type_info();
+    for (int index = 0; index < typeInfo->objOffsetsCount_; index++) {
+      ObjHeader** location = reinterpret_cast<ObjHeader**>(
+          reinterpret_cast<uintptr_t>(obj + 1) + typeInfo->objOffsets_[index]);
+      process(location);
+    }
+    if (typeInfo == theArrayTypeInfo) {
+      ArrayHeader* array = obj->array();
+      for (int index = 0; index < array->count_; index++) {
+        process(ArrayAddressOfElementAt(array, index));
+      }
+    }
+    obj = reinterpret_cast<ObjHeader*>(
+      reinterpret_cast<uintptr_t>(obj) + objectSize(obj));
+  }
+}
 
 #if TRACE_MEMORY || USE_GC
 
 // Must be vector or map 'container -> number', to keep reference counters correct.
 ContainerHeaderList collectMutableReferred(ContainerHeader* header) {
   ContainerHeaderList result;
-  ObjHeader* obj = reinterpret_cast<ObjHeader*>(header + 1);
-  for (int object = 0; object < header->objectCount(); object++) {
-    const TypeInfo* typeInfo = obj->type_info();
-    // TODO: generalize iteration over all references.
-    for (int index = 0; index < typeInfo->objOffsetsCount_; index++) {
-      ObjHeader** location = reinterpret_cast<ObjHeader**>(
-          reinterpret_cast<uintptr_t>(obj + 1) + typeInfo->objOffsets_[index]);
-      ObjHeader* ref = *location;
-      RuntimeAssert(ref == nullptr || !isArena(ref->container()), "A reference to local object is encountered");
-      if (ref != nullptr && !isPermanent(ref->container())) {
-        result.push_back(ref->container());
-      }
+  traverseContainerReferredObjects(header, [&result](ObjHeader* ref) {
+    RuntimeAssert(!isArena(ref->container()), "A reference to local object is encountered");
+    if (!isPermanent(ref->container())) {
+      result.push_back(ref->container());
     }
-    if (typeInfo == theArrayTypeInfo) {
-      ArrayHeader* array = obj->array();
-      for (int index = 0; index < array->count_; index++) {
-        ObjHeader* ref = *ArrayAddressOfElementAt(array, index);
-        RuntimeAssert(ref == nullptr || !isArena(ref->container()), "A reference to local object is encountered");
-        if (ref != nullptr && !isPermanent(ref->container())) {
-          result.push_back(ref->container());
-        }
-      }
-    }
-    obj = reinterpret_cast<ObjHeader*>(
-      reinterpret_cast<uintptr_t>(obj) + objectSize(obj));
-  }
+  });
   return result;
 }
 
@@ -472,7 +496,7 @@ void MarkRoots() {
   auto prev = &state->toFree;
   auto current = state->toFree;
   while (current != nullptr) {
-    auto container = current->container;
+    auto container = current;
     auto color = getColor(container);
     auto rcIsZero = container->refCount_ == CONTAINER_TAG_NORMAL;
     if (color == CONTAINER_TAG_GC_PURPLE && !rcIsZero) {
@@ -483,7 +507,6 @@ void MarkRoots() {
       container->objectCount_ &= ~CONTAINER_TAG_GC_BUFFERED;
       auto next = current->next;
       *prev = next;
-      konanFreeMemory(current);
       current = next;
       state->toFreeSize--;
       if (color == CONTAINER_TAG_GC_BLACK && rcIsZero) {
@@ -496,7 +519,7 @@ void MarkRoots() {
 void ScanRoots() {
   auto current = memoryState->toFree;
   while (current != nullptr) {
-    auto container = current->container;
+    auto container = current;
     Scan(container);
     current = current->next;
   }
@@ -507,10 +530,9 @@ void CollectRoots() {
   auto prev = &state->toFree;
   auto current = state->toFree;
   while (current != nullptr) {
-    auto container = current->container;
+    auto container = current;
     auto next = current->next;
     *prev = next;
-    konanFreeMemory(current);
     current = next;
     state->toFreeSize--;
     container->objectCount_ &= ~CONTAINER_TAG_GC_BUFFERED;
@@ -521,38 +543,14 @@ void CollectRoots() {
 void MarkGray(ContainerHeader* container) {
   if (getColor(container) == CONTAINER_TAG_GC_GRAY) return;
   setColor(container, CONTAINER_TAG_GC_GRAY);
-  ObjHeader* obj = reinterpret_cast<ObjHeader*>(container + 1);
-  for (int object = 0; object < container->objectCount(); object++) {
-    const TypeInfo* typeInfo = obj->type_info();
-    // TODO: generalize iteration over all references.
-    for (int index = 0; index < typeInfo->objOffsetsCount_; index++) {
-      ObjHeader** location = reinterpret_cast<ObjHeader**>(
-          reinterpret_cast<uintptr_t>(obj + 1) + typeInfo->objOffsets_[index]);
-      ObjHeader* ref = *location;
-      if (ref == nullptr) continue;
-      auto childContainer = ref->container();
-      RuntimeAssert(!isArena(childContainer), "A reference to local object is encountered");
-      if (!isPermanent(childContainer)) {
-        childContainer->refCount_ -= CONTAINER_TAG_INCREMENT;
-        MarkGray(childContainer);
-      }
+  traverseContainerReferredObjects(container, [](ObjHeader* ref) {
+    auto childContainer = ref->container();
+    RuntimeAssert(!isArena(childContainer), "A reference to local object is encountered");
+    if (!isPermanent(childContainer)) {
+      childContainer->refCount_ -= CONTAINER_TAG_INCREMENT;
+      MarkGray(childContainer);
     }
-    if (typeInfo == theArrayTypeInfo) {
-      ArrayHeader* array = obj->array();
-      for (int index = 0; index < array->count_; index++) {
-        ObjHeader* ref = *ArrayAddressOfElementAt(array, index);
-        if (ref == nullptr) continue;
-        auto childContainer = ref->container();
-        RuntimeAssert(!isArena(childContainer), "A reference to local object is encountered");
-        if (!isPermanent(childContainer)) {
-          childContainer->refCount_ -= CONTAINER_TAG_INCREMENT;
-          MarkGray(childContainer);
-        }
-      }
-    }
-    obj = reinterpret_cast<ObjHeader*>(
-      reinterpret_cast<uintptr_t>(obj) + objectSize(obj));
-  }
+  });
 }
 
 void Scan(ContainerHeader* container) {
@@ -562,74 +560,26 @@ void Scan(ContainerHeader* container) {
     return;
   }
   setColor(container, CONTAINER_TAG_GC_WHITE);
-  ObjHeader* obj = reinterpret_cast<ObjHeader*>(container + 1);
-    for (int object = 0; object < container->objectCount(); object++) {
-      const TypeInfo* typeInfo = obj->type_info();
-      // TODO: generalize iteration over all references.
-      for (int index = 0; index < typeInfo->objOffsetsCount_; index++) {
-        ObjHeader** location = reinterpret_cast<ObjHeader**>(
-            reinterpret_cast<uintptr_t>(obj + 1) + typeInfo->objOffsets_[index]);
-        ObjHeader* ref = *location;
-        if (ref == nullptr) continue;
-        auto childContainer = ref->container();
-        RuntimeAssert(!isArena(childContainer), "A reference to local object is encountered");
-        if (!isPermanent(childContainer)) {
-          Scan(childContainer);
-        }
-      }
-      if (typeInfo == theArrayTypeInfo) {
-        ArrayHeader* array = obj->array();
-        for (int index = 0; index < array->count_; index++) {
-          ObjHeader* ref = *ArrayAddressOfElementAt(array, index);
-          if (ref == nullptr) continue;
-          auto childContainer = ref->container();
-          RuntimeAssert(!isArena(childContainer), "A reference to local object is encountered");
-          if (!isPermanent(childContainer)) {
-            Scan(childContainer);
-          }
-        }
-      }
-      obj = reinterpret_cast<ObjHeader*>(
-        reinterpret_cast<uintptr_t>(obj) + objectSize(obj));
+  traverseContainerReferredObjects(container, [](ObjHeader* ref) {
+    auto childContainer = ref->container();
+    RuntimeAssert(!isArena(childContainer), "A reference to local object is encountered");
+    if (!isPermanent(childContainer)) {
+      Scan(childContainer);
     }
+  });
 }
 
 void ScanBlack(ContainerHeader* container) {
   setColor(container, CONTAINER_TAG_GC_BLACK);
-  ObjHeader* obj = reinterpret_cast<ObjHeader*>(container + 1);
-  for (int object = 0; object < container->objectCount(); object++) {
-    const TypeInfo* typeInfo = obj->type_info();
-    // TODO: generalize iteration over all references.
-    for (int index = 0; index < typeInfo->objOffsetsCount_; index++) {
-      ObjHeader** location = reinterpret_cast<ObjHeader**>(
-          reinterpret_cast<uintptr_t>(obj + 1) + typeInfo->objOffsets_[index]);
-      ObjHeader* ref = *location;
-      if (ref == nullptr) continue;
-      auto childContainer = ref->container();
-      RuntimeAssert(!isArena(childContainer), "A reference to local object is encountered");
-      if (!isPermanent(childContainer)) {
-        childContainer->refCount_ += CONTAINER_TAG_INCREMENT;
-        if (getColor(childContainer) != CONTAINER_TAG_GC_BLACK)
-          ScanBlack(childContainer);
-      }
+  traverseContainerReferredObjects(container, [](ObjHeader* ref) {
+    auto childContainer = ref->container();
+    RuntimeAssert(!isArena(childContainer), "A reference to local object is encountered");
+    if (!isPermanent(childContainer)) {
+      childContainer->refCount_ += CONTAINER_TAG_INCREMENT;
+      if (getColor(childContainer) != CONTAINER_TAG_GC_BLACK)
+        ScanBlack(childContainer);
     }
-    if (typeInfo == theArrayTypeInfo) {
-      ArrayHeader* array = obj->array();
-      for (int index = 0; index < array->count_; index++) {
-        ObjHeader* ref = *ArrayAddressOfElementAt(array, index);
-        if (ref == nullptr) continue;
-        auto childContainer = ref->container();
-        RuntimeAssert(!isArena(childContainer), "A reference to local object is encountered");
-        if (!isPermanent(childContainer)) {
-          childContainer->refCount_ += CONTAINER_TAG_INCREMENT;
-          if (getColor(childContainer) != CONTAINER_TAG_GC_BLACK)
-            ScanBlack(childContainer);
-        }
-      }
-    }
-    obj = reinterpret_cast<ObjHeader*>(
-      reinterpret_cast<uintptr_t>(obj) + objectSize(obj));
-  }
+  });
 }
 
 void CollectWhite(ContainerHeader* container) {
@@ -637,38 +587,15 @@ void CollectWhite(ContainerHeader* container) {
         || ((container->objectCount_ & CONTAINER_TAG_GC_BUFFERED) == 0))
     return;
   setColor(container, CONTAINER_TAG_GC_BLACK);
-  ObjHeader* obj = reinterpret_cast<ObjHeader*>(container + 1);
-    for (int object = 0; object < container->objectCount(); object++) {
-      const TypeInfo* typeInfo = obj->type_info();
-      // TODO: generalize iteration over all references.
-      for (int index = 0; index < typeInfo->objOffsetsCount_; index++) {
-        ObjHeader** location = reinterpret_cast<ObjHeader**>(
-            reinterpret_cast<uintptr_t>(obj + 1) + typeInfo->objOffsets_[index]);
-        ObjHeader* ref = *location;
-        if (ref == nullptr) continue;
-        auto childContainer = ref->container();
-        RuntimeAssert(!isArena(childContainer), "A reference to local object is encountered");
-        if (!isPermanent(childContainer)) {
-          CollectWhite(childContainer);
-        }
-      }
-      if (typeInfo == theArrayTypeInfo) {
-        ArrayHeader* array = obj->array();
-        for (int index = 0; index < array->count_; index++) {
-          ObjHeader* ref = *ArrayAddressOfElementAt(array, index);
-          if (ref == nullptr) continue;
-          auto childContainer = ref->container();
-          RuntimeAssert(!isArena(childContainer), "A reference to local object is encountered");
-          if (!isPermanent(childContainer)) {
-            CollectWhite(childContainer);
-          }
-        }
-      }
-      obj = reinterpret_cast<ObjHeader*>(
-        reinterpret_cast<uintptr_t>(obj) + objectSize(obj));
+  traverseContainerReferredObjects(container, [](ObjHeader* ref) {
+    auto childContainer = ref->container();
+    RuntimeAssert(!isArena(childContainer), "A reference to local object is encountered");
+    if (!isPermanent(childContainer)) {
+      CollectWhite(childContainer);
     }
-    memoryState->allocCount--;
-    konanFreeMemory(container);
+  });
+  memoryState->allocCount--;
+  konanFreeMemory(container);
 }
 
 #else // !BACON_GC
@@ -745,7 +672,7 @@ inline void AddRef(ContainerHeader* header) {
 }
 
 inline void Release(ContainerHeader* header) {
-  // Looking at container type we may want to skip AddRef() totally
+  // Looking at container type we may want to skip Release() totally
   // (non-escaping stack objects, constant objects).
   switch (header->refCount_ & CONTAINER_TAG_MASK) {
     case CONTAINER_TAG_PERMANENT:
@@ -903,6 +830,17 @@ inline void runDeallocationHooks(ObjHeader* obj) {
 #endif
 }
 
+inline void runDeallocationHooks(ContainerHeader* container) {
+  ObjHeader* obj = reinterpret_cast<ObjHeader*>(container + 1);
+
+  for (int index = 0; index < container->objectCount(); index++) {
+    runDeallocationHooks(obj);
+
+    obj = reinterpret_cast<ObjHeader*>(
+      reinterpret_cast<uintptr_t>(obj) + objectSize(obj));
+  }
+}
+
 static inline void DeinitInstanceBodyImpl(const TypeInfo* typeInfo, void* body) {
   for (int index = 0; index < typeInfo->objOffsetsCount_; index++) {
     ObjHeader** location = reinterpret_cast<ObjHeader**>(
@@ -931,24 +869,13 @@ void FreeContainer(ContainerHeader* header) {
 #endif
   removeFreeable(state, header);
 #endif
+
+  runDeallocationHooks(header);
+
   // Now let's clean all object's fields in this container.
-  ObjHeader* obj = reinterpret_cast<ObjHeader*>(header + 1);
-
-  for (int index = 0; index < header->objectCount(); index++) {
-    runDeallocationHooks(obj);
-
-    const TypeInfo* typeInfo = obj->type_info();
-
-    DeinitInstanceBodyImpl(typeInfo, reinterpret_cast<void*>(obj + 1));
-
-    // Object arrays are *special*.
-    if (typeInfo == theArrayTypeInfo) {
-      ArrayHeader* array = obj->array();
-      ReleaseRefs(ArrayAddressOfElementAt(array, 0), array->count_);
-    }
-    obj = reinterpret_cast<ObjHeader*>(
-      reinterpret_cast<uintptr_t>(obj) + objectSize(obj));
-  }
+  traverseContainerObjectFields(header, [](ObjHeader** location) {
+    UpdateRef(location, nullptr);
+  });
 
   // And release underlying memory.
   if (isFreeable(header)) {
@@ -976,13 +903,8 @@ void FreeContainerNoRef(MemoryState* state, ContainerHeader* header) {
 #endif
   removeFreeable(state, header);
 #endif
-  ObjHeader* obj = reinterpret_cast<ObjHeader*>(header + 1);
 
-  for (int index = 0; index < header->objectCount(); index++) {
-    runDeallocationHooks(obj);
-    obj = reinterpret_cast<ObjHeader*>(
-      reinterpret_cast<uintptr_t>(obj) + objectSize(obj));
-  }
+  runDeallocationHooks(header);
 
   scheduleDestroyContainer(state, header);
 }
@@ -996,10 +918,11 @@ void ReleaseRef(const ObjHeader* object);
 namespace {
 void FreeContainerHard(ContainerHeader* header) {
   RuntimeAssert(!isPermanent(header), "this kind of container shan't be freed");
+  auto state = memoryState;
 #if TRACE_MEMORY
   if (isFreeable(header)) {
     fprintf(stderr, "<<< free<FreeContainerHard> %p\n", header);
-    memoryState->containers->erase(header);
+    state->containers->erase(header);
   }
 #endif
 
@@ -1007,54 +930,29 @@ void FreeContainerHard(ContainerHeader* header) {
 #if TRACE_MEMORY
   fprintf(stderr, "Calling removeFreeable from FreeContainerHard\n");
 #endif
-  removeFreeable(memoryState, header);
+  removeFreeable(state, header);
 #endif
+
+  runDeallocationHooks(header);
+
   // Now let's clean all object's fields in this container.
-  ObjHeader* obj = reinterpret_cast<ObjHeader*>(header + 1);
-
-  for (int index = 0; index < header->objectCount(); index++) {
-    runDeallocationHooks(obj);
-
-    const TypeInfo* typeInfo = obj->type_info();
-
-    for (int index = 0; index < typeInfo->objOffsetsCount_; index++) {
-      ObjHeader** location = reinterpret_cast<ObjHeader**>(
-          reinterpret_cast<uintptr_t>(obj + 1) + typeInfo->objOffsets_[index]);
-      auto object = *location;
-      if (object != nullptr) {
-        ReleaseRef(object);
-        *location = nullptr;
-      }
+  traverseContainerObjectFields(header, [](ObjHeader** location) {
+    auto object = *location;
+    if (object != nullptr) {
+      ReleaseRef(object);
+      *location = nullptr;
     }
-    // Object arrays are *special*.
-    if (typeInfo == theArrayTypeInfo) {
-      ArrayHeader* array = obj->array();
-      ObjHeader** current = ArrayAddressOfElementAt(array, 0);
-      auto count = array->count_;
-      while (count-- > 0) {
-        ObjHeader* object = *current;
-        if (object != nullptr) {
-          ReleaseRef(object);
-          *current = nullptr;
-        }
-        current++;
-      }
-    }
-    obj = reinterpret_cast<ObjHeader*>(
-      reinterpret_cast<uintptr_t>(obj) + objectSize(obj));
-  }
+  });
 
   // And release underlying memory.
   if (isFreeable(header)) {
 #if BACON_GC
     setColor(header, CONTAINER_TAG_GC_BLACK);
     if ((header->objectCount_ & CONTAINER_TAG_GC_BUFFERED) == 0) {
-      memoryState->allocCount--;
-      konanFreeMemory(header);
+      scheduleDestroyContainer(state, header);
     }
 #else
-    memoryState->allocCount--;
-    konanFreeMemory(header);
+    scheduleDestroyContainer(state, header);
 #endif
   }
 }
@@ -1200,12 +1098,6 @@ inline void AddRef(const ObjHeader* object) {
   fprintf(stderr, "AddRef on %p in %p\n", object, object->container());
 #endif
   AddRef(object->container());
-//  AddRef(object->container());
-//#if USE_GC
-//  // TODO: one could remove from toFree set here, as now container is reachable
-//  // from the rootset, so cannot be cycle collection candidate.
-//  // removeFreeable(memoryState, object->container());
-//#endif
 }
 
 inline void ReleaseRef(const ObjHeader* object) {
@@ -1213,23 +1105,6 @@ inline void ReleaseRef(const ObjHeader* object) {
   fprintf(stderr, "ReleaseRef on %p in %p\n", object, object->container());
 #endif
   Release(object->container());
-//#if USE_GC
-//  // If object is not a cycle candidate - just return.
-//  if (Release(object->container())) {
-//    return;
-//  }
-//#if TRACE_MEMORY
-//  fprintf(stderr, "%p is release candidate\n", object->container());
-//#endif
-//#if !BATCH_ARC
-//#if TRACE_MEMORY
-//  fprintf(stderr, "Adding freeable from ReleaseRef\n");
-//#endif
-//  addFreeable(memoryState, object->container(), true);
-//#endif
-//#else // !USE_GC
-//  Release(object->container());
-//#endif // USE_GC
 }
 
 extern "C" {
@@ -1262,6 +1137,10 @@ MemoryState* InitMemory() {
   memoryState->gcInProgress = false;
   initThreshold(memoryState, kGcThreshold);
   memoryState->gcSuspendCount = 0;
+#endif
+#if BATCH_ARC
+  memoryState->stackMax = 0;
+  memoryState->stackMin = static_cast<uintptr_t>(-1);
 #endif
   return memoryState;
 }
@@ -1378,6 +1257,8 @@ void SetRef(ObjHeader** location, const ObjHeader* object) {
   *const_cast<const ObjHeader**>(location) = object;
 #if BATCH_ARC
   auto state = memoryState;
+  auto x = reinterpret_cast<uintptr_t>(location);
+  if (x >= state->stackMin && x < state->stackMax) return;
   if (state->incBatchIndex >= kBatchSize) {
     replayBatchedReferences(state, false);
   }
@@ -1412,10 +1293,21 @@ void UpdateReturnRef(ObjHeader** returnSlot, const ObjHeader* object) {
 
 void UpdateRef(ObjHeader** location, const ObjHeader* object) {
   RuntimeAssert(!isArenaSlot(location), "must not be a slot");
-  ObjHeader* old = *location;
 #if TRACE_MEMORY
   fprintf(stderr, "UpdateRef *%p: %p -> %p\n", location, old, object);
 #endif
+#if BATCH_ARC
+  {
+// TODO: doesn't work with workers.
+//    auto state = memoryState;
+//    auto x = reinterpret_cast<uintptr_t>(location);
+//    if (x >= state->stackMin && x < state->stackMax) {
+//      *const_cast<const ObjHeader**>(location) = object;
+//      return;
+//    }
+  }
+#endif
+  ObjHeader* old = *location;
   if (old != object) {
 #if BATCH_ARC
     auto state = memoryState;
@@ -1445,9 +1337,17 @@ void EnterFrame(ObjHeader** start, int count) {
 #if BATCH_ARC
   // Move topmost frame down.
   auto frameOverlay = asFrameOverlay(start);
-  frameOverlay->previousFrame = memoryState->topmostFrame;
+  auto state = memoryState;
+  auto topmostFrame = state->topmostFrame;
+  auto curStart = reinterpret_cast<uintptr_t>(start);
+  if (state->stackMin > curStart)
+    state->stackMin = curStart;
+  auto curEnd = reinterpret_cast<uintptr_t>(start + count);
+  if (state->stackMax < curEnd)
+    state->stackMax = curEnd;
+  frameOverlay->previousFrame = topmostFrame;
   frameOverlay->slotCount = count;
-  memoryState->topmostFrame = frameOverlay;
+  state->topmostFrame = frameOverlay;
 #endif
 }
 
@@ -1721,7 +1621,7 @@ bool ClearSubgraphReferences(ObjHeader* root, bool checked) {
     auto prev = &state->toFree;
     auto current = state->toFree;
     while (current != nullptr) {
-      auto container = current->container;
+      auto container = current;
       if (subgraph.find(container) == subgraph.end()) {
         prev = &current->next;
         current = current->next;
@@ -1729,7 +1629,6 @@ bool ClearSubgraphReferences(ObjHeader* root, bool checked) {
         container->objectCount_ &= ~CONTAINER_TAG_GC_BUFFERED;
         auto next = current->next;
         *prev = next;
-        konanFreeMemory(current);
         current = next;
         state->toFreeSize--;
       }
