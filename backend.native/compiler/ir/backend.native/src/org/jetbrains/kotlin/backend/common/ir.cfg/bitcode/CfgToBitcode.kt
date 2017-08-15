@@ -76,6 +76,7 @@ internal class CfgToBitcode(
     }
 
     private fun selectBlock(block: Block) {
+        context.log { "Selecting block ${block.name}" }
         codegen.appendingTo(codegen.llvmBlockFor(block)) {
             block.instructions.forEach { selectInstruction(it) }
 
@@ -115,12 +116,12 @@ internal class CfgToBitcode(
         }(selectOperand(binOp.op1), selectOperand(binOp.op2), "")
     }
 
-    private fun selectLT0(instruction: LT0) {
-        registers[instruction.def] = codegen.icmpLt(selectOperand(instruction.arg), codegen.kImmZero)
+    private fun selectLT0(lt0: LT0) {
+        registers[lt0.def] = codegen.icmpLt(selectOperand(lt0.arg), codegen.kImmZero)
     }
 
-    private fun selectGT0(instruction: GT0) {
-        registers[instruction.def] = codegen.icmpGt(selectOperand(instruction.arg), codegen.kImmZero)
+    private fun selectGT0(gt0: GT0) {
+        registers[gt0.def] = codegen.icmpGt(selectOperand(gt0.arg), codegen.kImmZero)
     }
 
     private fun selectAlloc(alloc: Alloc) {
@@ -180,7 +181,12 @@ internal class CfgToBitcode(
     val Variable.address: LLVMValueRef
         get() {
             val indexOf = variableManager.indexOf(this)
-            assert(indexOf >= 0, { "Variable $this is not exists." })       // variable should already exist
+            if (indexOf < 0) {
+                for (register in registers) {
+                    println(register)
+                }
+                error("No address for $this")
+            }
             return variableManager.addressOf(indexOf)
         }
 

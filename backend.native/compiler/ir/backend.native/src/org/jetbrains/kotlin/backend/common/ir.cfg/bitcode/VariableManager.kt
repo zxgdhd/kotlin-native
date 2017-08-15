@@ -22,8 +22,8 @@ internal class VariableManager(val codegen: CodeGenerator) {
 
     class ValueRecord(val value: LLVMValueRef, val name: String) : Record {
         override fun load() : LLVMValueRef = value
-        override fun store(value: LLVMValueRef) = throw Error("writing to immutable: $name")
-        override fun address() : LLVMValueRef = throw Error("no address for: $name")
+        override fun store(value: LLVMValueRef) = error("writing to immutable: $name")
+        override fun address() : LLVMValueRef = error("no address for: $name")
         override fun toString() = "value of $value from $name"
     }
 
@@ -45,7 +45,7 @@ internal class VariableManager(val codegen: CodeGenerator) {
         // as even vals can be assigned on multiple paths. However, we use varness
         // knowledge, as anonymous slots are created only for true vars (for vals
         // their single assigner already have slot).
-            createMutable(variable, variable.isVar, value)
+            createMutable(variable, variable.isVar)
     }
 
     fun createMutable(variable: Variable,
@@ -62,8 +62,7 @@ internal class VariableManager(val codegen: CodeGenerator) {
     }
 
     fun createImmutable(variable: Variable, value: LLVMValueRef) : Int {
-        if (variable in contextVariablesToIndex)
-            throw Error("$variable is already defined")
+        if (variable in contextVariablesToIndex) error("$variable is already defined")
         val index = variables.size
         variables += ValueRecord(value, variable.name)
         contextVariablesToIndex[variable] = index

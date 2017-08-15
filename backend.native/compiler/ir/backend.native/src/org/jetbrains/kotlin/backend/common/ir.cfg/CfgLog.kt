@@ -91,7 +91,7 @@ fun Block.log() {
 
 fun Function.log() {
     println("\nfun $this {")                                                            // Print selectFunction declaration.
-    blocks.reversed().forEach(Block::log)                                               // Print the blocks.
+    blocks.forEach(Block::log)                                               // Print the blocks.
     println("}")
 }
 

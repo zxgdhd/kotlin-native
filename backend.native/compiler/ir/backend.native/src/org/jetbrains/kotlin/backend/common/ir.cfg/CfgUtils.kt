@@ -89,14 +89,14 @@ private fun search(enter: Block): List<Block> {
     while (workSet.isNotEmpty()) {
         val block = workSet.last()
 
-        visited.add(block)
+        visited += block
         val successors = block.successors.filterNot { visited.contains(it) }
         workSet.addAll(successors)
         if (successors.isNotEmpty()) continue
 
-        result.add(block)
+        result += block
         workSet.remove(block)
     }
-    return result
+    return result.reversed()
 }
 
