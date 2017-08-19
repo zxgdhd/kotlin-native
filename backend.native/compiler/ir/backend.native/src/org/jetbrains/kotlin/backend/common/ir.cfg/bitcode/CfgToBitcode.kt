@@ -4,7 +4,9 @@ import llvm.*
 import org.jetbrains.kotlin.backend.common.ir.cfg.*
 import org.jetbrains.kotlin.backend.common.ir.cfg.Function
 import org.jetbrains.kotlin.backend.konan.*
+import org.jetbrains.kotlin.backend.konan.llvm.Lifetime
 import org.jetbrains.kotlin.backend.konan.llvm.getFunctionType
+import org.jetbrains.kotlin.backend.konan.llvm.verifyModule
 import org.jetbrains.kotlin.backend.konan.llvm.voidType
 
 
@@ -13,10 +15,7 @@ internal fun emitBitcodeFromCfg(context: Context) {
     context.llvmModule = module
 }
 
-internal class CfgToBitcode(
-        val ir: Ir,
-        override val context: Context
-) : BitcodeSelectionUtils {
+internal class CfgToBitcode(val ir: Ir, override val context: Context) : BitcodeSelectionUtils {
     private val codegen = CodeGenerator(context)
 
     private val variableManager: VariableManager
@@ -26,6 +25,13 @@ internal class CfgToBitcode(
 
     init {
         context.cfgLlvmDeclarations = createCfgLlvmDeclarations(context)
+
+        val rttiGenerator = RTTIGenerator(context)
+        context.cfgDeclarations.classMetas.forEach { klass, meta ->
+            if (!meta.isExternal) {
+                rttiGenerator.generate(klass)
+            }
+        }
     }
 
     fun select() {
@@ -40,7 +46,7 @@ internal class CfgToBitcode(
         LLVMSetLinkage(entryFunction, LLVMLinkage.LLVMExternalLinkage)
     }
 
-    fun entryPointSelector(entryPoint: LLVMValueRef,
+    private fun entryPointSelector(entryPoint: LLVMValueRef,
                            entryPointType: LLVMTypeRef, selectorName: String): LLVMValueRef {
 
         assert(LLVMCountParams(entryPoint) == 1)
@@ -73,6 +79,7 @@ internal class CfgToBitcode(
         function.blocks.forEach { selectBlock(it) }
         codegen.epilogue()
         registers.clear()
+        verifyModule(context.llvmModule!!)
     }
 
     private fun selectBlock(block: Block) {
@@ -92,16 +99,25 @@ internal class CfgToBitcode(
 
     private fun selectInstruction(instruction: Instruction) {
         when (instruction) {
-            is Call     -> selectCall(instruction)
-//            is Invoke   -> selectInvoke(instruction)
-            is Ret      -> selectRet(instruction)
-            is Br       -> selectBr(instruction)
-            is Condbr   -> selectCondbr(instruction)
-            is Store    -> selectStore(instruction)
-            is Alloc    -> selectAlloc(instruction)
-            is GT0      -> selectGT0(instruction)
-            is LT0      -> selectLT0(instruction)
-            is BinOp    -> selectBinOp(instruction)
+            is Call             -> this::selectCall
+            is CallVirtual      -> this::selectCallVirtual
+            is CallInterface    -> this::selectCallInterface
+            is Ret              -> this::selectRet
+            is Br               -> this::selectBr
+            is Condbr           -> this::selectCondbr
+            is Store            -> this::selectStore
+            is Alloc            -> this::selectAlloc
+            is GT0              -> this::selectGT0
+            is LT0              -> this::selectLT0
+            is BinOp            -> this::selectBinOp
+            is AllocInstance    -> this::selectAllocInstance
+            else                -> this::stub
+        }(instruction)
+    }
+
+    private fun stub(instruction: Instruction) {
+        context.log {
+            "${instruction.asString()} is not supported yet"
         }
     }
 
@@ -128,14 +144,25 @@ internal class CfgToBitcode(
         registers[alloc.def] = variableManager.addressOf(variableManager.createVariable(alloc.def))
     }
 
+    private fun selectAllocInstance(allocInstance: AllocInstance) {
+        registers[allocInstance.def] = codegen.allocInstance(allocInstance.klass.typeInfoPtr.llvm)
+    }
+
     private fun selectStore(store: Store) {
         val value = selectOperand(store.value)
         val address = store.address.address
         codegen.store(value, address)
     }
 
-    private fun selectInvoke(invoke: Invoke): Nothing {
-        TODO("INVOKE is not implemented yet")
+    private fun selectInvoke(invoke: Invoke) {
+        val successBlock = codegen.appendBasicBlock()
+        registers[invoke.def] = codegen.invoke(
+                invoke.callee.llvmFunction,
+                invoke.args.map { selectOperand(it) },
+                successBlock,
+                codegen.llvmBlockFor(invoke.landingpad)
+        )
+        codegen.positionAtEnd(successBlock)
     }
 
     private fun selectBr(br: Br) = codegen.br(codegen.llvmBlockFor(br.target))
@@ -148,14 +175,24 @@ internal class CfgToBitcode(
 
     private fun selectRet(ret: Ret) = codegen.ret(selectOperand(ret.value))
 
-    private fun selectCall(call: Call) {
-        registers[call.def] = codegen.call(
-                call.callee.llvmFunction,
-                call.args.map { selectOperand(it) }
-        )
+    private fun selectCallVirtual(call: CallVirtual) {
+        assert(call.args[0].type is Type.KlassPtr) { "0th arg should be Klass but it is : ${call.args[0].type}" }
     }
 
-    fun selectConst(const: Constant): LLVMValueRef {
+    private fun selectCallInterface(call: CallInterface) {
+        assert(call.args[0].type is Type.KlassPtr) { "0th arg should be Klass but it is : ${call.args[0].type}" }
+    }
+
+    private fun selectCall(call: Call) {
+        val def = codegen.call(
+                call.callee.llvmFunction,
+                call.args.map { selectOperand(it) },
+                if (call.def != CfgUnit) Lifetime.GLOBAL else Lifetime.IRRELEVANT
+        )
+        if (call.def != CfgUnit) registers[call.def] = def
+    }
+
+    private fun selectConst(const: Constant): LLVMValueRef {
         return when(const.type) {
             Type.boolean -> if (const.value as Boolean) codegen.kTrue else codegen.kFalse
             Type.byte -> LLVMConstInt(LLVMInt8Type(), (const.value as Byte).toLong(), 1)!!
@@ -195,9 +232,6 @@ internal class CfgToBitcode(
             val indexOf = variableManager.indexOf(this)
             if (indexOf == -1) {
                 if (registers[this] == null) {
-                    for (register in registers) {
-                        println(register)
-                    }
                     error("No value for $this")
                 } else {
                     return registers[this]!!

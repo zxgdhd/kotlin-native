@@ -15,7 +15,7 @@ internal class CfgLlvmDeclarations(
         val classes: Map<Klass, KlassLlvmDeclarations>
 )
 
-internal class KlassLlvmDeclarations(
+internal data class KlassLlvmDeclarations(
         val bodyType: LLVMTypeRef,
         val typeInfoGlobal: StaticData.Global,
         val typeInfo: ConstPointer
@@ -100,7 +100,9 @@ internal val Klass.typeInfoSymbolName: String
 
 internal fun RuntimeAware.getLlvmType(function: Function): LLVMTypeRef  {
     val returnType = getLlvmType(function.returnType)
-    val paramTypes = function.parameters.map { getLlvmType(it.type) }
+    val paramTypes = function.parameters.map { getLlvmType(it.type) }.toMutableList()
+    if (isObjectType(returnType))
+        paramTypes += kObjHeaderPtrPtr
     return functionType(returnType, paramTypes = *paramTypes.toTypedArray())
 }
 

@@ -56,10 +56,11 @@ class Function(val name: String, val returnType: Type = TypeUnit) {
 //-----------------------------------------------------------------------------//
 
 class Klass(val name: String) {
-    val supers  = mutableListOf<Klass>()                                       // Superclass and interfaces.
+    var superclass: Klass = anyKlass
+    val interfaces = mutableListOf<Klass>()                                       // Superclass and interfaces.
     val methods = mutableListOf<Function>()                                    // Methods and property getters/setters.
     val fields  = mutableListOf<Variable>()                                    // Backing fields.
-    override fun toString() = name
+    override fun toString() = "$name"
 }
 
 //-----------------------------------------------------------------------------//

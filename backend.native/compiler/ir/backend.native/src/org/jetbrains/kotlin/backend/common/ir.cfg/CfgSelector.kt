@@ -7,9 +7,12 @@ import org.jetbrains.kotlin.backend.common.ir.cfg.bitcode.emitBitcodeFromCfg
 import org.jetbrains.kotlin.backend.common.pop
 import org.jetbrains.kotlin.backend.common.push
 import org.jetbrains.kotlin.backend.konan.Context
+import org.jetbrains.kotlin.backend.konan.descriptors.isInterface
 import org.jetbrains.kotlin.backend.konan.descriptors.isIntrinsic
 import org.jetbrains.kotlin.backend.konan.descriptors.isUnit
 import org.jetbrains.kotlin.backend.konan.isValueType
+import org.jetbrains.kotlin.backend.konan.llvm.functionName
+import org.jetbrains.kotlin.backend.konan.llvm.localHash
 import org.jetbrains.kotlin.builtins.KotlinBuiltIns
 import org.jetbrains.kotlin.descriptors.*
 import org.jetbrains.kotlin.ir.IrElement
@@ -18,7 +21,6 @@ import org.jetbrains.kotlin.ir.declarations.*
 import org.jetbrains.kotlin.ir.descriptors.IrBuiltinOperatorDescriptorBase
 import org.jetbrains.kotlin.ir.expressions.*
 import org.jetbrains.kotlin.ir.symbols.IrValueSymbol
-import org.jetbrains.kotlin.ir.symbols.IrVariableSymbol
 import org.jetbrains.kotlin.ir.util.getArguments
 import org.jetbrains.kotlin.ir.visitors.IrElementVisitorVoid
 import org.jetbrains.kotlin.ir.visitors.acceptVoid
@@ -188,7 +190,7 @@ internal class CfgSelector(override val context: Context): IrElementVisitorVoid,
         val continueBlock = newBlock("label_continue")
 
         val address = Constant(Type.ptr(), "FIXME")
-        val objectVal = currentBlock.inst(Load(newVariable(statement.type.cfgType), address, Cfg0))
+        val objectVal = currentBlock.inst(Load(newVariable(statement.type.cfgType), address, 0.cfg))
         val condition = currentBlock.inst(BinOp.IcmpNE(newVariable(Type.boolean), objectVal, CfgNull))
         currentBlock.inst(Condbr(condition, continueBlock, initBlock))
 
@@ -214,7 +216,7 @@ internal class CfgSelector(override val context: Context): IrElementVisitorVoid,
         } else {                                                                            // It is global field.
             val fieldName = statement.descriptor.toCfgName()
             val globalPtr = Constant(Type.FieldPtr, fieldName)                                  // TODO should we use special type here?
-            currentBlock.inst(Load(fieldType, globalPtr, Cfg0))
+            currentBlock.inst(Load(fieldType, globalPtr, 0.cfg))
         }
     }
 
@@ -361,7 +363,20 @@ internal class CfgSelector(override val context: Context): IrElementVisitorVoid,
         irCall.descriptor is ConstructorDescriptor -> selectConstructorCall(irCall)
         else -> {
             val args = irCall.getArguments().map { (_, expr) -> selectStatement(expr) }
-            generateCall(irCall.descriptor, irCall.type.cfgType, args)
+            if (irCall.descriptor.isOverridable && irCall.superQualifier == null) {
+                generateVirtualCall(irCall.descriptor, irCall.type.cfgType, args)
+            } else {
+                generateCall(irCall.descriptor, irCall.type.cfgType, args)
+            }
+        }
+    }
+
+    private fun generateVirtualCall(descriptor: FunctionDescriptor, cfgType: Type, args: List<Operand>): Operand {
+        val owner = descriptor.containingDeclaration as ClassDescriptor
+        return if (!owner.isInterface) {
+            currentBlock.inst(CallVirtual(descriptor.cfgFunction, newVariable(cfgType), args))
+        } else {
+            currentBlock.inst(CallInterface(descriptor.cfgFunction, newVariable(cfgType), args))
         }
     }
 
@@ -413,13 +428,13 @@ internal class CfgSelector(override val context: Context): IrElementVisitorVoid,
                 val pointerType = descriptor.returnType!!.cfgType // pointerType(codegen.getLLVMType(descriptor.returnType!!))
                 val rawPointer = args.last()
                 val pointer = currentBlock.inst(Bitcast(newVariable(pointerType), rawPointer, pointerType))
-                currentBlock.inst(Load(newVariable(pointerType), pointer, Cfg0))
+                currentBlock.inst(Load(newVariable(pointerType), pointer, 0.cfg))
             }
             in interop.writePrimitive -> {
                 val pointerType = descriptor.valueParameters.last().type.cfgType //pointerType(codegen.getLLVMType(descriptor.valueParameters.last().type))
                 val rawPointer = args[1]
                 val pointer = currentBlock.inst(Bitcast(newVariable(pointerType), rawPointer, pointerType))
-                currentBlock.inst(Store(args[2], pointer, Cfg0))
+                currentBlock.inst(Store(args[2], pointer, 0.cfg))
                 CfgUnit
             }
             context.builtIns.nativePtrPlusLong -> currentBlock.inst(Gep(newVariable(Type.ptr()), args[0], args[1]))
@@ -447,11 +462,10 @@ internal class CfgSelector(override val context: Context): IrElementVisitorVoid,
         // call init
         val descriptor = irCall.descriptor as ConstructorDescriptor
         val constructedClass = descriptor.constructedClass.cfgKlass
-        val objPtr: Operand = currentBlock.inst(Alloc(newVariable(irCall.type.cfgType), Type.KlassPtr(constructedClass)))
-        val args = mutableListOf(objPtr).apply {
-            irCall.getArguments().mapTo(this) { (_, expr) -> selectStatement(expr) }
-        }
-        return generateCall(irCall.descriptor, irCall.type.cfgType, args)
+        val objPtr = currentBlock.inst(AllocInstance(newVariable(irCall.type.cfgType), constructedClass))
+        val args = listOf(objPtr) + irCall.getArguments().map { (_, expr) -> selectStatement(expr) }
+        generateCall(irCall.descriptor, TypeUnit, args)
+        return objPtr
     }
 
     //-------------------------------------------------------------------------//

@@ -3,8 +3,8 @@ package org.jetbrains.kotlin.backend.common.ir.cfg
 //--- Globals -----------------------------------------------------------------//
 
 val CfgNull = Constant(TypeUnit, "null")
-val Cfg0    = Constant(Type.int, 0)
-val Cfg1    = Constant(Type.int, 1)
+val Int.cfg : Constant
+    get() = Constant(Type.int, this)
 val CfgUnit = Variable(TypeUnit, "unit")
 
 //--- Opcode ------------------------------------------------------------------//
@@ -39,13 +39,15 @@ fun Block.inst(instruction: Instruction): Variable {
             addSuccessor(instruction.target)
             CfgUnit
         }
-        is Call         -> instruction.def
-        is Alloc        -> instruction.def
-        is InstanceOf   -> instruction.def
-        is GT0          -> instruction.def
-        is LT0          -> instruction.def
-        is BinOp        -> instruction.def
-        else            -> CfgUnit
+        is Call             -> instruction.def
+        is Alloc            -> instruction.def
+        is AllocInstance    -> instruction.def
+        is InstanceOf       -> instruction.def
+        is GT0              -> instruction.def
+        is LT0              -> instruction.def
+        is BinOp            -> instruction.def
+        is Gep              -> instruction.def
+        else                -> CfgUnit
     }
 }
 

@@ -65,9 +65,13 @@ internal interface TypeResolver : RuntimeAware {
 
     val KotlinType.cfgType: Type
         get() = if (!isValueType()) {
-                val classDescriptor = TypeUtils.getClassDescriptor(this)
-                        ?: error("Cannot get class descriptor ${this.constructor}")
-                Type.KlassPtr(classDescriptor.cfgKlass)
+                if (this.isUnit()) {
+                    TypeUnit
+                } else {
+                    val classDescriptor = TypeUtils.getClassDescriptor(this)
+                            ?: error("Cannot get class descriptor ${this.constructor}")
+                    Type.KlassPtr(classDescriptor.cfgKlass)
+                }
             } else when (correspondingValueType) {
                 ValueType.BOOLEAN        -> Type.boolean
                 ValueType.CHAR           -> Type.short
@@ -88,6 +92,14 @@ internal interface TypeResolver : RuntimeAware {
             if (this !in classes) {
                 val klass = createCfgKlass(this)
                 classes[this] = klass
+                if (!isExternal(this)) {
+                    getFields(this).forEach {
+                        klass.fields += Variable(it.type.cfgType, it.toCfgName())
+                    }
+                    klass.superclass = getSuperClassOrAny().cfgKlass
+                    klass.interfaces += this.implementedInterfaces.map { it.cfgKlass }
+                    klass.methods += this.contributedMethods.map { it.cfgFunction }
+                }
                 classMetas[klass] = this.metaInfo
             }
             return classes[this]!!
@@ -100,30 +112,21 @@ internal interface TypeResolver : RuntimeAware {
             return unitKlass
         }
 
-        val klass = Klass(classDescriptor.toCfgName())
-
-        if (isExternal(classDescriptor)) {
-           return klass
-        }
-
-        getFields(classDescriptor).forEach {
-            klass.fields += Variable(it.type.cfgType, it.toCfgName())
-        }
-        val interfaces = classDescriptor.implementedInterfaces.map { it.cfgKlass }
-        val superclass = classDescriptor.getSuperClassOrAny().cfgKlass
-        klass.supers  += interfaces
-        klass.supers  += superclass
-        klass.methods += classDescriptor.contributedMethods.map { it.cfgFunction }
-        return klass
+        return Klass(classDescriptor.toCfgName())
     }
 
     val FunctionDescriptor.cfgFunction: Function
         get() {
             if (this !in functions) {
-                val function = Function(this.toCfgName(), this.returnType?.cfgType ?: TypeUnit)
+                val returnType = when (this) {
+                    is ConstructorDescriptor -> TypeUnit
+                    else -> this.returnType?.cfgType ?: TypeUnit
+                }
+                val function = Function(this.toCfgName(), returnType)
                 function.parameters += this.allParameters.map {
                     Variable(it.type.cfgType, it.name.asString())
                 }
+                context.log {"Created function $function"}
                 functions[this] = function
                 funcMetas[function] = this.metaInfo
             }
@@ -182,11 +185,11 @@ internal interface TypeResolver : RuntimeAware {
     val CallableDescriptor.containingClass: Klass?
         get() {
             val dispatchReceiverParameter = this.dispatchReceiverParameter
-            if (dispatchReceiverParameter != null) {
+            return if (dispatchReceiverParameter != null) {
                 val containingClass = dispatchReceiverParameter.containingDeclaration
-                return classes[containingClass] ?: error(containingClass.toString())
+                classes[containingClass] ?: error(containingClass.toString())
             } else {
-                return null
+                null
             }
         }
 

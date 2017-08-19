@@ -17,6 +17,7 @@ sealed class Type {
     object char   : Type() { override val byteSize: Int get() = 2 }
 
     open class ptr : Type() { override val byteSize: Int get() = 8 }
+    class TypePtr(val type: Type)   : ptr()
     class KlassPtr(val klass: Klass): ptr()
     object FunctionPtr              : ptr()
     object BlockPtr                 : ptr()
@@ -27,9 +28,11 @@ sealed class Type {
 
 //--- Predefined types --------------------------------------------------------//
 
-val unitKlass = Klass("Unit")
-val TypeUnit = Type.KlassPtr(unitKlass) // TODO: workaround. Add builtins
-val TypeString = Type.KlassPtr(Klass("String"))
+val unitKlass   = Klass("Unit")
+val anyKlass    = Klass("Any")
+val TypeUnit    = Type.KlassPtr(unitKlass) // TODO: workaround. Add builtins
+val TypeAny     = Type.KlassPtr(anyKlass)
+val TypeString  = Type.KlassPtr(Klass("String"))
 
 //--- Utils -------------------------------------------------------------------//
 
@@ -42,6 +45,8 @@ fun Type.KlassPtr.fieldOffset(fieldName: String): Int {
     println("ERROR: No field $fieldName found in class $klass")
     return -1
 }
+
+fun Klass.isAny() = this == anyKlass
 
 //--- Type usage examples -----------------------------------------------------//
 

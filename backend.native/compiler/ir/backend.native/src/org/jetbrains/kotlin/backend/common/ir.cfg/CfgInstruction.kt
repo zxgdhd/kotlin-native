@@ -1,10 +1,18 @@
 package org.jetbrains.kotlin.backend.common.ir.cfg
 
 class Call(val callee: Function, val def: Variable, val args: List<Operand>)
-    : Instruction(args + listOf(callee.ptr), listOf(def))
+    : Instruction(args + listOf(callee.ptr),
+        defs = if (def.type != TypeUnit) listOf(def) else emptyList())
 
 class Invoke(val callee: Function, val def: Variable, val args: List<Operand>, val landingpad: Block)
-    : Instruction((listOf(callee.ptr, landingpad.ptr) + args), listOf(def))
+    : Instruction((listOf(callee.ptr, landingpad.ptr) + args),
+        defs = if (def.type != TypeUnit) listOf(def) else emptyList())
+
+class CallVirtual(val callee: Function, val def: Variable, val args: List<Operand>)
+    : Instruction((listOf(callee.ptr) + args), listOf(def))
+
+class CallInterface(val callee: Function, val def: Variable, val args: List<Operand>)
+    : Instruction((listOf(callee.ptr) + args), listOf(def))
 
 class Condbr(val condition: Operand, val targetTrue: Block, val targetFalse: Block)
     : Instruction(listOf(condition, targetFalse.ptr, targetTrue.ptr))
@@ -15,13 +23,10 @@ class Br(val target: Block)
 class Ret(val value: Operand = CfgNull)
     : Instruction(listOf(value))
 
-class Mov(val def: Variable, val use: Operand)
-    : Instruction(listOf(use), listOf(def))
-
 class Load(def: Variable, address: Operand, offset: Constant)
     : Instruction(listOf(address, offset), listOf(def))
 
-class Store(val value: Operand, val address: Variable, val offset: Constant = Cfg0)
+class Store(val value: Operand, val address: Variable, val offset: Constant = 0.cfg)
     : Instruction(listOf(value, address, offset))
 
 class Landingpad(exception: Variable)
@@ -33,8 +38,13 @@ class InstanceOf(val def: Variable, val value: Operand, val type: Type)
 class NotInstanceOf(val def: Variable, val value: Operand, val type: Type)
     : Instruction(listOf(value, Constant(Type.ptr(), type)), listOf(def))
 
+// Allocate on stack
 class Alloc(val def: Variable, val type: Type)
     : Instruction(listOf(Constant(type, type)), listOf(def))
+
+// Allocate on heap
+class AllocInstance(val def: Variable, val klass: Klass)
+    : Instruction(listOf(Constant(Type.KlassPtr(klass), klass)), listOf(def))
 
 class Cast(def: Variable, use: Operand)
     : Instruction(listOf(use), listOf(def))
@@ -48,10 +58,10 @@ class Trunk(def: Variable, use: Operand)
 class Gstore(val fieldName: String, val initializer: Operand)
     : Instruction(listOf(Constant(Type.FieldPtr, fieldName), initializer))
 
-class Bitcast(def: Variable, rawPointer: Operand, pointerType: Type)
+class Bitcast(val def: Variable, val rawPointer: Operand, val pointerType: Type)
     : Instruction(listOf(rawPointer, Constant(Type.ptr(), pointerType)), listOf(def))
 
-class Gep(def: Variable, base: Operand, index: Operand)
+class Gep(val def: Variable, base: Operand, index: Operand)
     : Instruction(listOf(base, index), listOf(def))
 
 class GT0(val def: Variable, val arg: Operand)

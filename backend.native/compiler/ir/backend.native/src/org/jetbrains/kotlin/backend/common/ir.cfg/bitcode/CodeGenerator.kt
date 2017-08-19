@@ -286,16 +286,20 @@ internal class CodeGenerator(override val context: Context) : BitcodeSelectionUt
                 SlotType.ANONYMOUS, SlotType.RETURN_IF_ARENA -> variableManager.createAnonymousSlot()
                 else -> throw Error("Incorrect slot type")
             }
-            args + resultSlot
+            (args + resultSlot)
         } else {
             args
-        }.toCValues()
+        }
+
+    fun allocInstance(typeInfo: LLVMValueRef): LLVMValueRef =
+            call(context.llvm.allocInstanceFunction, listOf(typeInfo), Lifetime.GLOBAL)
 
     fun call(callee: LLVMValueRef,
              args: List<LLVMValueRef>,
              resultLifetime: Lifetime = Lifetime.IRRELEVANT): LLVMValueRef {
         val callArgs = createArgs(callee, args, resultLifetime)
-        return LLVMBuildCall(builder, callee, callArgs, args.size, "")!!
+        // toCValues changes array size. WTF?
+        return LLVMBuildCall(builder, callee, callArgs.toCValues(), callArgs.size, "")!!
     }
 
     fun invoke(callee: LLVMValueRef,
@@ -305,8 +309,10 @@ internal class CodeGenerator(override val context: Context) : BitcodeSelectionUt
                resultLifetime: Lifetime = Lifetime.IRRELEVANT): LLVMValueRef {
         val callArgs = createArgs(callee, args, resultLifetime)
         positionHolder.setAfterTerminator()
-        return LLVMBuildInvoke(builder, callee, callArgs, args.size, successBlock, landingpad, "")!!
+        return LLVMBuildInvoke(builder, callee, callArgs.toCValues(), callArgs.size, successBlock, landingpad, "")!!
     }
+
+    fun appendBasicBlock(): LLVMBasicBlockRef = LLVMAppendBasicBlock(function, "")!!
 
     fun llvmBlockFor(block: Block): LLVMBasicBlockRef = blockMap.getOrPut(block) {
         val blockRef = LLVMInsertBasicBlock(currentBlock, block.name)!!

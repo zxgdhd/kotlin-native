@@ -24,6 +24,7 @@ import org.jetbrains.kotlin.backend.jvm.descriptors.initialize
 import org.jetbrains.kotlin.backend.konan.descriptors.*
 import org.jetbrains.kotlin.backend.common.DumpIrTreeWithDescriptorsVisitor
 import org.jetbrains.kotlin.backend.common.ir.cfg.CfgDeclarations
+import org.jetbrains.kotlin.backend.common.ir.cfg.Klass
 import org.jetbrains.kotlin.backend.common.ir.cfg.bitcode.CfgLlvmDeclarations
 import org.jetbrains.kotlin.backend.konan.ir.KonanIr
 import org.jetbrains.kotlin.backend.konan.library.KonanLibraryWriter
@@ -165,6 +166,15 @@ internal class Context(config: KonanConfig) : KonanBackendContext(config) {
 
     fun getVtableBuilder(classDescriptor: ClassDescriptor) = vtableBuilders.getOrPut(classDescriptor) {
         ClassVtablesBuilder(classDescriptor, this)
+    }
+
+    fun getVtableBuilder(klass: Klass): ClassVtablesBuilder {
+        val descriptor = cfgDeclarations.classes
+                .filterValues { it == klass }
+                .map { it.key }
+                .firstOrNull() ?: error("No declaration for $klass")
+
+        return getVtableBuilder(descriptor)
     }
 
     // We serialize untouched descriptor tree and inline IR bodies
