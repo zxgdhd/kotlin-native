@@ -19,7 +19,7 @@ import org.jetbrains.kotlin.types.KotlinType
 import org.jetbrains.kotlin.types.TypeUtils
 import org.jetbrains.kotlin.types.typeUtil.isUnit
 
-class CfgDeclarations(
+internal class CfgDeclarations(
         val functions: MutableMap<FunctionDescriptor, Function> = mutableMapOf(),
         val classes: MutableMap<ClassDescriptor, Klass> = mutableMapOf(),
         val funcMetas: MutableMap<Function, FunctionMetaInfo> = mutableMapOf(),
@@ -33,10 +33,11 @@ class KlassMetaInfo(
         val vtableSize: Int
 )
 
-class FunctionMetaInfo(
+internal class FunctionMetaInfo(
         val isExported: Boolean,
         val isIntrinsic: Boolean,
         val isExternal: Boolean,
+        val localHash: LocalHash,
         val symbol: String
 )
 
@@ -190,7 +191,7 @@ internal interface TypeResolver : RuntimeAware {
         }
 
     private val FunctionDescriptor.metaInfo: FunctionMetaInfo
-        get() = FunctionMetaInfo(this.isExported(), this.isIntrinsic, this.module != context.ir.irModule.descriptor, if (this.isExported()) this.symbolName else this.name.asString())
+        get() = FunctionMetaInfo(this.isExported(), this.isIntrinsic, this.module != context.ir.irModule.descriptor, functionName.localHash, if (this.isExported()) this.symbolName else this.functionName)
 
     private val ClassDescriptor.metaInfo: KlassMetaInfo
         get() {

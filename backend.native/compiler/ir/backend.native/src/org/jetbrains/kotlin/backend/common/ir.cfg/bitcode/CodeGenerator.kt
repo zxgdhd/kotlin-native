@@ -372,5 +372,5 @@ internal class CodeGenerator(override val context: Context) : BitcodeSelectionUt
     }
 
     fun functionHash(function: Function): LLVMValueRef
-            = context.cfgDeclarations.funcMetas[function]!!.symbol.localHash.llvm
+            = context.cfgDeclarations.funcMetas[function]!!.localHash.llvm
 }

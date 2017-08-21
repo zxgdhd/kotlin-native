@@ -109,6 +109,8 @@ internal class RTTIGenerator(override val context: Context) : BitcodeSelectionUt
             emptyList()
         } else {
             context.getVtableBuilder(klass).methodTableEntries.map {
+                val functionName = it.overriddenDescriptor.functionName
+                val nameSignature = functionName.localHash
                 val implementation = context.cfgDeclarations.functions[it.implementation]
                 val entryPointAddress =   if (implementation == null) {
                     val func = context.llvm.externalFunction(it.implementation.symbolName, getLlvmFunctionType(it.implementation))
@@ -117,8 +119,7 @@ internal class RTTIGenerator(override val context: Context) : BitcodeSelectionUt
                 } else {
                     implementation.entryPointAddress
                 }
-                val name = context.cfgDeclarations.functions[it.descriptor]!!.name
-                MethodTableRecord(name.localHash, entryPointAddress)
+                MethodTableRecord(nameSignature, entryPointAddress)
             }.sortedBy { it.nameSignature.value }
         }
 
