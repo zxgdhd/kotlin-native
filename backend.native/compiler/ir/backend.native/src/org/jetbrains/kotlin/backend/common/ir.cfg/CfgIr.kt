@@ -60,7 +60,7 @@ class Klass(val name: String) {
     val interfaces = mutableListOf<Klass>()                                       // Superclass and interfaces.
     val methods = mutableListOf<Function>()                                    // Methods and property getters/setters.
     val fields  = mutableListOf<Variable>()                                    // Backing fields.
-    override fun toString() = "$name"
+    override fun toString() = name
 }
 
 //-----------------------------------------------------------------------------//

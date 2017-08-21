@@ -115,6 +115,8 @@ internal class CodeGenerator(override val context: Context) : BitcodeSelectionUt
         cleanupLandningpad = LLVMAppendBasicBlock(llvmFunction, "cleanup_landingpad")!!
 
         positionAtEnd(localsInitBlock)
+        slotCount = 1
+        localAllocs = 0
         slotsPhi = phi(kObjHeaderPtrPtr)
         arenaSlot = intToPtr(
                 or(ptrToInt(slotsPhi, intPtrType), immOneIntPtrType), kObjHeaderPtrPtr)
@@ -149,7 +151,7 @@ internal class CodeGenerator(override val context: Context) : BitcodeSelectionUt
         appendingTo(epilogueBlock) {
             when {
                 returnType == voidType -> {
-                    // release vars?
+                    releaseVars()
                     LLVMBuildRetVoid(builder)
                 }
                 returns.isNotEmpty() -> {
@@ -173,6 +175,9 @@ internal class CodeGenerator(override val context: Context) : BitcodeSelectionUt
         }
         blockMap.clear()
         variableManager.clear()
+        returns.clear()
+        returnSlot = null
+        slotsPhi = null
     }
 
     fun addPhiIncoming(phi: LLVMValueRef, vararg incoming: Pair<LLVMBasicBlockRef, LLVMValueRef>) {
@@ -292,13 +297,13 @@ internal class CodeGenerator(override val context: Context) : BitcodeSelectionUt
         }
 
     fun allocInstance(typeInfo: LLVMValueRef): LLVMValueRef =
-            call(context.llvm.allocInstanceFunction, listOf(typeInfo), Lifetime.GLOBAL)
+            call(context.llvm.allocInstanceFunction, listOf(typeInfo), Lifetime.LOCAL)
 
     fun call(callee: LLVMValueRef,
              args: List<LLVMValueRef>,
              resultLifetime: Lifetime = Lifetime.IRRELEVANT): LLVMValueRef {
         val callArgs = createArgs(callee, args, resultLifetime)
-        // toCValues changes array size. WTF?
+        // toCValues changes array size. Why?
         return LLVMBuildCall(builder, callee, callArgs.toCValues(), callArgs.size, "")!!
     }
 
