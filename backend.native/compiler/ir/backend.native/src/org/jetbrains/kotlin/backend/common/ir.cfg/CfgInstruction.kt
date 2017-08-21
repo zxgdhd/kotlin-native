@@ -23,6 +23,9 @@ class Br(val target: Block)
 class Ret(val value: Operand = CfgNull)
     : Instruction(listOf(value))
 
+class Throw(val exceptionType: Type)
+    : Instruction()
+
 class Load(def: Variable, address: Operand, offset: Constant)
     : Instruction(listOf(address, offset), listOf(def))
 

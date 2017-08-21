@@ -4,10 +4,7 @@ import llvm.*
 import org.jetbrains.kotlin.backend.common.ir.cfg.*
 import org.jetbrains.kotlin.backend.common.ir.cfg.Function
 import org.jetbrains.kotlin.backend.konan.*
-import org.jetbrains.kotlin.backend.konan.llvm.Lifetime
-import org.jetbrains.kotlin.backend.konan.llvm.getFunctionType
-import org.jetbrains.kotlin.backend.konan.llvm.verifyModule
-import org.jetbrains.kotlin.backend.konan.llvm.voidType
+import org.jetbrains.kotlin.backend.konan.llvm.*
 
 
 internal fun emitBitcodeFromCfg(context: Context) {
@@ -177,17 +174,51 @@ internal class CfgToBitcode(val ir: Ir, override val context: Context) : Bitcode
 
     private fun selectCallVirtual(call: CallVirtual) {
         assert(call.args[0].type is Type.KlassPtr) { "0th arg should be Klass but it is : ${call.args[0].type}" }
+        val klass = (call.args[0].type as Type.KlassPtr).klass
+        val typeInfoPtrPtr = LLVMBuildStructGEP(codegen.builder, selectOperand(call.args[0]), 0, "")
+        val typeInfoPtr = codegen.load(typeInfoPtrPtr!!)
+        val descriptor = context.cfgDeclarations.functions
+                .filterValues { it == call.callee }
+                .map { it.key }
+                .firstOrNull() ?: error("No declaration for ${call.callee}")
+        val index = context.getVtableBuilder(klass).vtableIndex(descriptor)
+        val vtablePlace = codegen.gep(typeInfoPtr, Int32(1).llvm)
+        val vtable = codegen.bitcast(kInt8PtrPtr, vtablePlace)
+        val slot = codegen.gep(vtable, Int32(index).llvm)
+        val llvmMethod = codegen.load(slot)
+        val functionPtrType = pointerType(getLlvmType(call.callee))
+        val function = codegen.bitcast(functionPtrType, llvmMethod)
+        val def = codegen.call(
+                function,
+                call.args.map { selectOperand(it) },
+                if (call.def != CfgUnit) Lifetime.LOCAL else Lifetime.IRRELEVANT
+        )
+        if (call.def != CfgUnit) registers[call.def] = def
     }
 
     private fun selectCallInterface(call: CallInterface) {
         assert(call.args[0].type is Type.KlassPtr) { "0th arg should be Klass but it is : ${call.args[0].type}" }
+        val klass = (call.args[0].type as Type.KlassPtr).klass
+        val typeInfoPtrPtr = LLVMBuildStructGEP(codegen.builder, selectOperand(call.args[0]), 0, "")
+        val typeInfoPtr = codegen.load(typeInfoPtrPtr!!)
+        val methodHash = codegen.functionHash(call.callee)
+        val lookupArgs = listOf(typeInfoPtr, methodHash)
+        val llvmMethod = codegen.call(context.llvm.lookupOpenMethodFunction, lookupArgs)
+        val functionPtrType = pointerType(getLlvmType(call.callee))
+        val function = codegen.bitcast(functionPtrType, llvmMethod)
+        val def = codegen.call(
+                function,
+                call.args.map { selectOperand(it) },
+                if (call.def != CfgUnit) Lifetime.LOCAL else Lifetime.IRRELEVANT
+        )
+        if (call.def != CfgUnit) registers[call.def] = def
     }
 
     private fun selectCall(call: Call) {
         val def = codegen.call(
                 call.callee.llvmFunction,
                 call.args.map { selectOperand(it) },
-                if (call.def != CfgUnit) Lifetime.GLOBAL else Lifetime.IRRELEVANT
+                if (call.def != CfgUnit) Lifetime.LOCAL else Lifetime.IRRELEVANT
         )
         if (call.def != CfgUnit) registers[call.def] = def
     }

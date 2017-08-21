@@ -27,8 +27,12 @@ private class DeclarationsGenerator(override val context: Context) : ContextUtil
         get() = this + "#internal"
 
     fun generate(): CfgLlvmDeclarations {
-        val funcDeclarations = context.cfgDeclarations.funcMetas.filterValues { !it.isIntrinsic }.mapValues { createFunctionDeclaration(it.key, it.value) }
-        val klassDeclarations = context.cfgDeclarations.classMetas.filterValues { !it.isExternal }.mapValues { createClassDeclaration(it.key, it.value) }
+        val funcDeclarations = context.cfgDeclarations.funcMetas.filterValues { !it.isIntrinsic }.mapValues {
+            createFunctionDeclaration(it.key, it.value)
+        }
+        val klassDeclarations = context.cfgDeclarations.classMetas.filterValues { !it.isExternal }.mapValues {
+            createClassDeclaration(it.key, it.value)
+        }
         return CfgLlvmDeclarations(funcDeclarations, klassDeclarations)
     }
 
@@ -69,6 +73,7 @@ private class DeclarationsGenerator(override val context: Context) : ContextUtil
 
             typeInfoPtr = typeInfoGlobal.pointer
         }
+
         return KlassLlvmDeclarations(bodyType, typeInfoGlobal, typeInfoPtr)
     }
 

@@ -40,6 +40,8 @@ fun Block.inst(instruction: Instruction): Variable {
             CfgUnit
         }
         is Call             -> instruction.def
+        is CallVirtual      -> instruction.def
+        is CallInterface    -> instruction.def
         is Alloc            -> instruction.def
         is AllocInstance    -> instruction.def
         is InstanceOf       -> instruction.def

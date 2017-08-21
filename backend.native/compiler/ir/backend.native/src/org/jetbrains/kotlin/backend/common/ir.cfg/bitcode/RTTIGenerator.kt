@@ -11,6 +11,7 @@ import org.jetbrains.kotlin.descriptors.ClassDescriptor
 import org.jetbrains.kotlin.descriptors.FunctionDescriptor
 import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.resolve.constants.StringValue
+import org.jetbrains.kotlin.resolve.descriptorUtil.fqNameSafe
 
 
 internal class RTTIGenerator(override val context: Context) : BitcodeSelectionUtils {
@@ -108,10 +109,16 @@ internal class RTTIGenerator(override val context: Context) : BitcodeSelectionUt
             emptyList()
         } else {
             context.getVtableBuilder(klass).methodTableEntries.map {
-//                val implementation = context.cfgDeclarations.functions[it.implementation]
-//                        ?: error("No function for declaration ${it.implementation.name.asString()}")
+                val implementation = context.cfgDeclarations.functions[it.implementation]
+                val entryPointAddress =   if (implementation == null) {
+                    val func = context.llvm.externalFunction(it.implementation.symbolName, getLlvmFunctionType(it.implementation))
+                    val result = LLVMConstBitCast(func, int8TypePtr)!!
+                    constValue(result)
+                } else {
+                    implementation.entryPointAddress
+                }
                 val name = context.cfgDeclarations.functions[it.descriptor]!!.name
-                MethodTableRecord(name.localHash, it.implementation.entryPointAddress)
+                MethodTableRecord(name.localHash, entryPointAddress)
             }.sortedBy { it.nameSignature.value }
         }
 
@@ -131,9 +138,14 @@ internal class RTTIGenerator(override val context: Context) : BitcodeSelectionUt
             typeInfo
         } else {
             val vtableEntries = context.getVtableBuilder(klass).vtableEntries.map {
-//                val implementation = context.cfgDeclarations.functions[it.implementation]
-//                        ?: error("No function for declaration ${it.implementation.name.asString()}")
-                it.implementation.entryPointAddress
+                val implementation = context.cfgDeclarations.functions[it.implementation]
+                if (implementation == null) {
+                    val func = context.llvm.externalFunction(it.implementation.symbolName, getLlvmFunctionType(it.implementation))
+                    val result = LLVMConstBitCast(func, int8TypePtr)!!
+                    constValue(result)
+                } else {
+                    implementation.entryPointAddress
+                }
             }
             val vtable = ConstArray(int8TypePtr, vtableEntries)
             Struct(typeInfo, vtable)
@@ -142,10 +154,10 @@ internal class RTTIGenerator(override val context: Context) : BitcodeSelectionUt
         typeInfoGlobal.setInitializer(typeInfoGlobalValue)
         typeInfoGlobal.setConstant(true)
 
-        val descriptor = context.cfgDeclarations.classes
-                .filterValues { it == klass }
-                .map { it.key }
-                .firstOrNull() ?: error("No declaration for $klass")
+//        val descriptor = context.cfgDeclarations.classes
+//                .filterValues { it == klass }
+//                .map { it.key }
+//                .firstOrNull() ?: error("No declaration for $klass")
 //        exportTypeInfoIfRequired(descriptor, descriptor.llvmTypeInfoPtr)
     }
 

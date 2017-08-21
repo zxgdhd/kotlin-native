@@ -20,12 +20,15 @@ internal interface BitcodeSelectionUtils: ContextUtils {
             get() = context.cfgDeclarations.classMetas[this]!!.isExternal
 
     val Function.llvmFunction: LLVMValueRef
-        get() = context.cfgLlvmDeclarations.functions[this]?.llvmFunction
-                ?: error("$this is undeclared for reason unknown")
+        get() {
+            val meta = context.cfgDeclarations.funcMetas[this]!!
+            return if (meta.isExternal) {
+                context.llvm.externalFunction(meta.symbol, getLlvmType(this))
+            } else {
+                context.cfgLlvmDeclarations.functions[this]?.llvmFunction!!
+            }
+        }
 
-    /**
-     * Address of entry point of [llvmFunction].
-     */
     val Function.entryPointAddress: ConstValue
         get() {
             val result = LLVMConstBitCast(this.llvmFunction, int8TypePtr)!!

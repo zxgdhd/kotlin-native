@@ -106,12 +106,9 @@ internal interface TypeResolver : RuntimeAware {
         }
 
     private fun createCfgKlass(classDescriptor: ClassDescriptor): Klass {
-        context.log { "Create klass: ${classDescriptor.name.asString()}" }
-
         if (classDescriptor.isUnit()) {
             return unitKlass
         }
-
         return Klass(classDescriptor.toCfgName())
     }
 
@@ -126,7 +123,6 @@ internal interface TypeResolver : RuntimeAware {
                 function.parameters += this.allParameters.map {
                     Variable(it.type.cfgType, it.name.asString())
                 }
-                context.log {"Created function $function"}
                 functions[this] = function
                 funcMetas[function] = this.metaInfo
             }
@@ -194,7 +190,7 @@ internal interface TypeResolver : RuntimeAware {
         }
 
     private val FunctionDescriptor.metaInfo: FunctionMetaInfo
-        get() = FunctionMetaInfo(this.isExported(), this.isIntrinsic, this.isExternal, if (this.isExported()) this.symbolName else this.name.asString())
+        get() = FunctionMetaInfo(this.isExported(), this.isIntrinsic, this.module != context.ir.irModule.descriptor, if (this.isExported()) this.symbolName else this.name.asString())
 
     private val ClassDescriptor.metaInfo: KlassMetaInfo
         get() {

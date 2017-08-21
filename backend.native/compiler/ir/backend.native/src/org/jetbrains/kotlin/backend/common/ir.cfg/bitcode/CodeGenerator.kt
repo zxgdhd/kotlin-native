@@ -38,7 +38,7 @@ internal class CodeGenerator(override val context: Context) : BitcodeSelectionUt
 
     private var positionHolder = PositionHolder()
 
-    private val builder: LLVMBuilderRef
+    val builder: LLVMBuilderRef
         get() = positionHolder.builder
 
     val currentBlock: LLVMBasicBlockRef
@@ -236,9 +236,8 @@ internal class CodeGenerator(override val context: Context) : BitcodeSelectionUt
         }
     }
 
-    fun load() {
-
-    }
+    fun load(address: LLVMValueRef, name: String = ""): LLVMValueRef
+            = LLVMBuildLoad(builder, address, name)!!
 
     fun loadSlot(address: LLVMValueRef, isVar: Boolean, name: String = "") : LLVMValueRef {
         val value = LLVMBuildLoad(builder, address, name)!!
@@ -371,4 +370,7 @@ internal class CodeGenerator(override val context: Context) : BitcodeSelectionUt
     fun unreachable() {
         LLVMBuildUnreachable(builder)
     }
+
+    fun functionHash(function: Function): LLVMValueRef
+            = context.cfgDeclarations.funcMetas[function]!!.symbol.localHash.llvm
 }

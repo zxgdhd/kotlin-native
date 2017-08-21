@@ -600,7 +600,9 @@ internal class CfgSelector(override val context: Context): IrElementVisitorVoid,
         val resultVar = if (expression.type == context.builtIns.unitType) {
             null
         } else {
-            newVariable(expression.type.cfgType)
+            val newVariable = newVariable(expression.type.cfgType)
+            currentBlock.inst(Alloc(newVariable, newVariable.type))
+            newVariable
         }
         val exitBlock = newBlock()
 
