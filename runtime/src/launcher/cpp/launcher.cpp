@@ -47,9 +47,21 @@ extern "C" RUNTIME_USED int Konan_main(int argc, const char** argv) {
 
   KInt exitStatus;
   {
-    ObjHolder args;
-    setupArgs(argc, argv, args.slot());
-    exitStatus = Konan_start(args.obj());
+    ObjHolder* args = konanConstructInstance<ObjHolder>();
+    //fprintf(stderr, "QZZQZZ1 %p\n", args->slot());
+    setupArgs(argc, argv, args->slot());
+    //fprintf(stderr, "QZZQZZ2\n");
+    exitStatus = Konan_start(args->obj());
+    //fprintf(stderr, "QZZQZZ3\n");
+    konanDestructInstance(args);
+//    ObjHolder args;
+//    fprintf(stderr, "QZZQZZ1 %p\n", args.slot());
+//    setupArgs(argc, argv, args.slot());
+//    args.print();
+//    fprintf(stderr, "QZZQZZ2\n");
+//    exitStatus = Konan_start(args.obj());
+//    args.print();
+//    fprintf(stderr, "QZZQZZ3\n");
   }
 
   DeinitRuntime(state);

@@ -31,11 +31,11 @@
 // Not recommended for low-end embedded targets.
 #define OPTIMIZE_GC 1
 // Define to 1 to print all memory operations.
-#define TRACE_MEMORY 0
+#define TRACE_MEMORY 1
 // Trace garbage collection phases.
 #define TRACE_GC_PHASES 0
 // Use reference counter update batching.
-#define BATCH_ARC 1
+#define BATCH_ARC 0
 // Use Bacon's algorithm for GC (http://researcher.watson.ibm.com/researcher/files/us-bacon/Bacon03Pure.pdf).
 #define BACON_GC 1
 
@@ -478,6 +478,7 @@ void dumpReachable(const char* prefix, const ContainerHeaderSet* roots) {
 #if BACON_GC
 
 void MarkRoots();
+void DeleteCorpses();
 void ScanRoots();
 void CollectRoots();
 void MarkGray(ContainerHeader* container);
@@ -486,9 +487,14 @@ void ScanBlack(ContainerHeader* container);
 void CollectWhite(ContainerHeader* container);
 
 void CollectCycles() {
+//  DeleteCorpses();
+  fprintf(stderr, "Real candidates: %d\n", memoryState->toFreeSize);
   MarkRoots();
+  fprintf(stderr, "After MarkRoots(): %d\n", memoryState->toFreeSize);
   ScanRoots();
+  fprintf(stderr, "After ScanRoots(): %d\n", memoryState->toFreeSize);
   CollectRoots();
+  fprintf(stderr, "After CollectRoots(): %d\n", memoryState->toFreeSize);
 }
 
 void MarkRoots() {
@@ -497,10 +503,40 @@ void MarkRoots() {
   auto current = state->toFree;
   while (current != nullptr) {
     auto container = current;
+    fprintf(stderr, "Processing %p\n", container);
     auto color = getColor(container);
     auto rcIsZero = container->refCount_ == CONTAINER_TAG_NORMAL;
+    fprintf(stderr, "Color: %d, refcount: %d\n", color, container->refCount_);
     if (color == CONTAINER_TAG_GC_PURPLE && !rcIsZero) {
+      fprintf(stderr, "%p is Gray\n", container);
       MarkGray(container);
+      prev = &current->next;
+      current = current->next;
+    } else {
+      container->objectCount_ &= ~CONTAINER_TAG_GC_BUFFERED;
+      auto next = current->next;
+      *prev = next;
+      current = next;
+      state->toFreeSize--;
+      if (color == CONTAINER_TAG_GC_BLACK && rcIsZero) {
+        FreeContainerNoRef(container);
+      }
+    }
+  }
+}
+
+void DeleteCorpses() {
+  auto state = memoryState;
+  auto prev = &state->toFree;
+  auto current = state->toFree;
+  while (current != nullptr) {
+    auto container = current;
+    fprintf(stderr, "Processing %p\n", container);
+    auto color = getColor(container);
+    auto rcIsZero = container->refCount_ == CONTAINER_TAG_NORMAL;
+    fprintf(stderr, "Color: %d, refcount: %d\n", color, container->refCount_);
+    if (color == CONTAINER_TAG_GC_PURPLE && !rcIsZero) {
+//      MarkGray(container);
       prev = &current->next;
       current = current->next;
     } else {
@@ -584,7 +620,7 @@ void ScanBlack(ContainerHeader* container) {
 
 void CollectWhite(ContainerHeader* container) {
   if (getColor(container) != CONTAINER_TAG_GC_WHITE
-        || ((container->objectCount_ & CONTAINER_TAG_GC_BUFFERED) == 0))
+        || ((container->objectCount_ & CONTAINER_TAG_GC_BUFFERED) != 0))
     return;
   setColor(container, CONTAINER_TAG_GC_BLACK);
   traverseContainerReferredObjects(container, [](ObjHeader* ref) {
@@ -594,8 +630,7 @@ void CollectWhite(ContainerHeader* container) {
       CollectWhite(childContainer);
     }
   });
-  memoryState->allocCount--;
-  konanFreeMemory(container);
+  FreeContainerNoRef(container);
 }
 
 #else // !BACON_GC
@@ -692,6 +727,9 @@ inline void Release(ContainerHeader* header) {
 // do two allocations per frame (ArenaContainer + actual container).
 inline ArenaContainer* initedArena(ObjHeader** auxSlot) {
   auto frame = asFrameOverlay(auxSlot);
+#if TRACE_MEMORY
+  fprintf(stderr, "Initializing arena at %p\n", frame);
+#endif
   auto arena = frame->arena;
   if (!arena) {
     arena = konanConstructInstance<ArenaContainer>();
@@ -738,8 +776,10 @@ void replayBatchedReferences(MemoryState* state, bool calledFromGC) {
       auto object = slots[slot++];
       if (object == nullptr) continue;
       auto container = object->container();
-      if (isRefCounted(object))
+      if (isRefCounted(object)) {
+//        fprintf(stderr, "Incrementing refcount from slot: %p - %p\n", &slots[slot - 1], container);
         IncrementRC(container);
+      }
     }
     currentFrame = currentFrame->previousFrame;
   }
@@ -747,13 +787,16 @@ void replayBatchedReferences(MemoryState* state, bool calledFromGC) {
   // Step (2).
   int index = 0;
   while (index < state->incBatchIndex) {
-    IncrementRC(state->incBatch[index++]);
+    auto container = state->incBatch[index++];
+//    fprintf(stderr, "Incrementing refcount from batch: %p\n", container);
+    IncrementRC(container);
   }
 
   // Step (3).
   index = 0;
   while (index < state->decBatchIndex) {
     auto container = state->decBatch[index++];
+//    fprintf(stderr, "Decrementing refcount from batch: %p\n", container);
     DecrementRC(container);
   }
 
@@ -770,8 +813,10 @@ void replayBatchedReferences(MemoryState* state, bool calledFromGC) {
     while (slot < numSlots) {
       auto object = slots[slot++];
       if (object == nullptr) continue;
-      if (isRefCounted(object))
+      if (isRefCounted(object)) {
+//        fprintf(stderr, "Scheduling decrementing refcount from slot: %p - %p\n", &slots[slot - 1], object->container());
         state->decBatch[state->decBatchIndex++] = object->container();
+      }
     }
     currentFrame = currentFrame->previousFrame;
   }
@@ -825,6 +870,7 @@ inline void runDeallocationHooks(ObjHeader* obj) {
 #if KONAN_OBJC_INTEROP
   if (obj->type_info() == theObjCPointerHolderTypeInfo) {
     void* objcPtr =  *reinterpret_cast<void**>(obj + 1); // TODO: use more reliable layout description
+    //fprintf(stderr, "Releasing objc object: %p\n", objcPtr);
     objc_release(objcPtr);
   }
 #endif
@@ -845,6 +891,9 @@ static inline void DeinitInstanceBodyImpl(const TypeInfo* typeInfo, void* body) 
   for (int index = 0; index < typeInfo->objOffsetsCount_; index++) {
     ObjHeader** location = reinterpret_cast<ObjHeader**>(
         reinterpret_cast<uintptr_t>(body) + typeInfo->objOffsets_[index]);
+#if TRACE_MEMORY
+    fprintf(stderr, "Calling UpdateRef from DeinitInstanceBodyImpl\n");
+#endif
     UpdateRef(location, nullptr);
   }
 }
@@ -859,7 +908,6 @@ void FreeContainer(ContainerHeader* header) {
 #if TRACE_MEMORY
   if (isFreeable(header)) {
     fprintf(stderr, "<<< free<FreeContainer> %p\n", header);
-    state->containers->erase(header);
   }
 #endif
 
@@ -870,10 +918,12 @@ void FreeContainer(ContainerHeader* header) {
   removeFreeable(state, header);
 #endif
 
-  runDeallocationHooks(header);
-
   // Now let's clean all object's fields in this container.
   traverseContainerObjectFields(header, [](ObjHeader** location) {
+#if TRACE_MEMORY
+    fprintf(stderr, "Calling UpdateRef from FreeContainer\n");
+#endif
+
     UpdateRef(location, nullptr);
   });
 
@@ -882,9 +932,23 @@ void FreeContainer(ContainerHeader* header) {
 #if BACON_GC
     setColor(header, CONTAINER_TAG_GC_BLACK);
     if ((header->objectCount_ & CONTAINER_TAG_GC_BUFFERED) == 0) {
+
+      runDeallocationHooks(header);
+
+#if TRACE_MEMORY
+    memoryState->containers->erase(header);
+#endif
+
       scheduleDestroyContainer(state, header);
     }
 #else
+
+    runDeallocationHooks(header);
+
+#if TRACE_MEMORY
+    memoryState->containers->erase(header);
+#endif
+
     scheduleDestroyContainer(state, header);
 #endif
   }
@@ -922,7 +986,6 @@ void FreeContainerHard(ContainerHeader* header) {
 #if TRACE_MEMORY
   if (isFreeable(header)) {
     fprintf(stderr, "<<< free<FreeContainerHard> %p\n", header);
-    state->containers->erase(header);
   }
 #endif
 
@@ -932,8 +995,6 @@ void FreeContainerHard(ContainerHeader* header) {
 #endif
   removeFreeable(state, header);
 #endif
-
-  runDeallocationHooks(header);
 
   // Now let's clean all object's fields in this container.
   traverseContainerObjectFields(header, [](ObjHeader** location) {
@@ -949,9 +1010,23 @@ void FreeContainerHard(ContainerHeader* header) {
 #if BACON_GC
     setColor(header, CONTAINER_TAG_GC_BLACK);
     if ((header->objectCount_ & CONTAINER_TAG_GC_BUFFERED) == 0) {
+
+      runDeallocationHooks(header);
+
+#if TRACE_MEMORY
+    memoryState->containers->erase(header);
+#endif
+
       scheduleDestroyContainer(state, header);
     }
 #else
+
+    runDeallocationHooks(header);
+
+#if TRACE_MEMORY
+    memoryState->containers->erase(header);
+#endif
+
     scheduleDestroyContainer(state, header);
 #endif
   }
@@ -1150,6 +1225,9 @@ void DeinitMemory(MemoryState* memoryState) {
   // Free all global objects, to ensure no memory leaks happens.
   for (auto location: *memoryState->globalObjects) {
     fprintf(stderr, "Release global in *%p: %p\n", location, *location);
+#if TRACE_MEMORY
+    fprintf(stderr, "Calling UpdateRef from DeinitMemory\n");
+#endif
     UpdateRef(location, nullptr);
   }
   konanDestructInstance(memoryState->globalObjects);
@@ -1178,15 +1256,17 @@ void DeinitMemory(MemoryState* memoryState) {
 
 #endif // USE_GC
 
+#if TRACE_MEMORY
   if (memoryState->allocCount > 0) {
     fprintf(stderr, "*** Memory leaks, leaked %d containers ***\n",
             memoryState->allocCount);
-#if TRACE_MEMORY
     dumpReachable("", memoryState->containers);
-    konanDestructInstance(memoryState->containers);
-    memoryState->containers = nullptr;
-#endif
   }
+  konanDestructInstance(memoryState->containers);
+  memoryState->containers = nullptr;
+#else
+  RuntimeAssert(memoryState->allocCount == 0, "Memory leaks found");
+#endif
 
   konanFreeMemory(memoryState);
   ::memoryState = nullptr;
@@ -1228,6 +1308,9 @@ OBJ_GETTER(InitInstance,
   }
 
   ObjHeader* object = AllocInstance(type_info, OBJ_RESULT);
+#if TRACE_MEMORY
+    fprintf(stderr, "Calling UpdateRef from InitInstance\n");
+#endif
   UpdateRef(location, object);
 #if KONAN_NO_EXCEPTIONS
   ctor(object);
@@ -1243,7 +1326,13 @@ OBJ_GETTER(InitInstance,
 #endif
     return object;
   } catch (...) {
+#if TRACE_MEMORY
+    fprintf(stderr, "Calling UpdateRef from InitInstance #2\n");
+#endif
     UpdateRef(OBJ_RESULT, nullptr);
+#if TRACE_MEMORY
+    fprintf(stderr, "Calling UpdateRef from InitInstance #3\n");
+#endif
     UpdateRef(location, nullptr);
     throw;
   }
@@ -1283,32 +1372,44 @@ ObjHeader** GetParamSlotIfArena(ObjHeader* param, ObjHeader** localSlot) {
 
 void UpdateReturnRef(ObjHeader** returnSlot, const ObjHeader* object) {
   if (isArenaSlot(returnSlot)) {
+    //fprintf(stderr, "Arena slot\n");
     // Not a subject of reference counting.
     if (object == nullptr || !isRefCounted(object)) return;
     auto arena = initedArena(asArenaSlot(returnSlot));
     returnSlot = arena->getSlot();
-  }
+  }// else fprintf(stderr, "Not arena slot\n");
+#if TRACE_MEMORY
+    fprintf(stderr, "Calling UpdateRef from UpdateReturnRef\n");
+#endif
   UpdateRef(returnSlot, object);
+}
+
+__attribute__((noinline)) void PrintUpdateRefInfo(ObjHeader** location, ObjHeader* old, const ObjHeader* object) {
+#if TRACE_MEMORY
+  fprintf(stderr, "UpdateRef *%p: %p -> %p\n", location, old, object);
+  fprintf(stderr, "          *%p: %p -> %p\n", location, old == nullptr ? nullptr : old->container(), object == nullptr ? nullptr : object->container());
+#if BATCH_ARC
+  fprintf(stderr, "          stackMin = %p, stackMax = %p\n", memoryState->stackMin, memoryState->stackMax);
+#endif
+#endif
 }
 
 void UpdateRef(ObjHeader** location, const ObjHeader* object) {
   RuntimeAssert(!isArenaSlot(location), "must not be a slot");
-#if TRACE_MEMORY
-  fprintf(stderr, "UpdateRef *%p: %p -> %p\n", location, old, object);
-#endif
 #if BATCH_ARC
   {
 // TODO: doesn't work with workers.
-//    auto state = memoryState;
-//    auto x = reinterpret_cast<uintptr_t>(location);
-//    if (x >= state->stackMin && x < state->stackMax) {
-//      *const_cast<const ObjHeader**>(location) = object;
-//      return;
-//    }
+    auto state = memoryState;
+    auto x = reinterpret_cast<uintptr_t>(location);
+    if (x >= state->stackMin && x < state->stackMax) {
+      *const_cast<const ObjHeader**>(location) = object;
+      return;
+    }
   }
 #endif
   ObjHeader* old = *location;
   if (old != object) {
+    PrintUpdateRefInfo(location, old, object);
 #if BATCH_ARC
     auto state = memoryState;
     *const_cast<const ObjHeader**>(location) = object;
@@ -1420,7 +1521,10 @@ void GarbageCollect() {
 
   state->gcInProgress = true;
 
+//  fprintf(stderr, "CYCLE CANDIDATES: %d\n", freeableSize(state));
+
   CollectCycles();
+  RuntimeAssert(state->toFreeSize == 0, "After GC candidates list must be empty");
 
   state->gcInProgress = false;
 }
@@ -1435,6 +1539,8 @@ void GarbageCollect() {
 #if TRACE_MEMORY
   fprintf(stderr, "Garbage collect\n");
 #endif
+
+//  fprintf(stderr, "CYCLE CANDIDATES: %d\n", freeableSize(state));
 
 #if BATCH_ARC
   replayBatchedReferences(state, true);
