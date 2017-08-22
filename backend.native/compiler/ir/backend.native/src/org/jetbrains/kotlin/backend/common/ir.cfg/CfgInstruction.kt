@@ -23,8 +23,8 @@ class Br(val target: Block)
 class Ret(val value: Operand = CfgNull)
     : Instruction(listOf(value))
 
-class Throw(val exceptionType: Type)
-    : Instruction()
+class Throw(val exception: Operand)
+    : Instruction(listOf(exception))
 
 class Load(def: Variable, address: Operand, offset: Constant)
     : Instruction(listOf(address, offset), listOf(def))
@@ -32,7 +32,7 @@ class Load(def: Variable, address: Operand, offset: Constant)
 class Store(val value: Operand, val address: Variable, val offset: Constant = 0.cfg)
     : Instruction(listOf(value, address, offset))
 
-class Landingpad(exception: Variable)
+class Landingpad(val exception: Variable)
     : Instruction(listOf(exception))
 
 class InstanceOf(val def: Variable, val value: Operand, val type: Type)

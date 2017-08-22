@@ -689,7 +689,6 @@ internal class CfgSelector(override val context: Context): IrElementVisitorVoid,
         val header = newBlock("catch_header")
         val exception = Variable(Type.ptr(), "exception")
 
-        // TODO: should expand to real exception object extraction
         header.inst(Landingpad(exception))
         currentBlock = header
         irCatches.forEach {
@@ -698,12 +697,12 @@ internal class CfgSelector(override val context: Context): IrElementVisitorVoid,
                 currentBlock.inst(Br(tryExit))
             } else {
                 val catchBody = newBlock()
-                val callee = Function("IsInstance", Type.boolean)
-                val isInstance = currentBlock.inst(Call(callee, newVariable(Type.boolean), listOf(exception)))
-                val nextCatch = newBlock("check_for_${it.parameter.name.asString()}")
+                val isInstance = currentBlock.inst(InstanceOf(newVariable(Type.boolean), exception, it.parameter.type.cfgType))
+                val nextCatch = newBlock("check_for_${it.parameter.name}")
                 currentBlock.inst(Condbr(isInstance, catchBody, nextCatch))
                 currentBlock = catchBody
                 selectStatement(it.result)
+                // TODO: check for terminal instruction
                 currentBlock.inst(Br(tryExit))
                 currentBlock = nextCatch
             }
@@ -716,9 +715,8 @@ internal class CfgSelector(override val context: Context): IrElementVisitorVoid,
 
     private fun selectThrow(irThrow: IrThrow): Operand {
         val evaluated = selectStatement(irThrow.value)
-        // TODO: call ThrowException
-//        currentBlock.invoke(currentFunction.newBlock(), )
-        return CfgNull // TODO: replace with Nothing type
+        currentBlock.inst(Throw(evaluated))
+        return CfgUnit // TODO: replace with Nothing type
     }
 
     //-------------------------------------------------------------------------//

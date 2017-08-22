@@ -108,6 +108,8 @@ internal class CfgToBitcode(val ir: Ir, override val context: Context) : Bitcode
             is LT0              -> this::selectLT0
             is BinOp            -> this::selectBinOp
             is AllocInstance    -> this::selectAllocInstance
+            is Throw            -> this::selectThrow
+            is InstanceOf       -> this::selectInstanceOf
             else                -> this::stub
         }(instruction)
     }
@@ -116,6 +118,21 @@ internal class CfgToBitcode(val ir: Ir, override val context: Context) : Bitcode
         context.log {
             "${instruction.asString()} is not supported yet"
         }
+    }
+
+    private fun selectInstanceOf(instanceOf: InstanceOf) {
+        if (instanceOf.type !is Type.KlassPtr) {
+            return
+        }
+        val klass = instanceOf.type.klass
+        val typeInfoPtr = klass.typeInfoPtr.llvm
+        val objInfoPtr = codegen.bitcast(codegen.kObjHeaderPtr, selectOperand(instanceOf.value))
+        val result = codegen.call(context.llvm.isInstanceFunction, listOf(objInfoPtr, typeInfoPtr))
+        registers[instanceOf.def] = LLVMBuildTrunc(codegen.builder, result, kInt1, "")!!
+    }
+
+    private fun selectThrow(thrw: Throw) {
+        codegen.call(context.llvm.throwExceptionFunction, listOf(selectOperand(thrw.exception)))
     }
 
     private fun selectBinOp(binOp: BinOp) {
