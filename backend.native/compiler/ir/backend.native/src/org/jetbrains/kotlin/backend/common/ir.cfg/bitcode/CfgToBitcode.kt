@@ -99,6 +99,7 @@ internal class CfgToBitcode(val ir: Ir, override val context: Context) : Bitcode
             is Call             -> this::selectCall
             is CallVirtual      -> this::selectCallVirtual
             is CallInterface    -> this::selectCallInterface
+            is Invoke           -> this::selectInvoke
             is Ret              -> this::selectRet
             is Br               -> this::selectBr
             is Condbr           -> this::selectCondbr
@@ -109,22 +110,19 @@ internal class CfgToBitcode(val ir: Ir, override val context: Context) : Bitcode
             is BinOp            -> this::selectBinOp
             is AllocInstance    -> this::selectAllocInstance
             is Throw            -> this::selectThrow
+            is Landingpad       -> this::selectLandingpad
             is InstanceOf       -> this::selectInstanceOf
             else                -> this::stub
         }(instruction)
     }
 
     private fun stub(instruction: Instruction) {
-        context.log {
-            "${instruction.asString()} is not supported yet"
-        }
+        context.log { "$instruction is not supported yet" }
     }
 
     private fun selectInstanceOf(instanceOf: InstanceOf) {
-        if (instanceOf.type !is Type.KlassPtr) {
-            return
-        }
-        val klass = instanceOf.type.klass
+        assert(instanceOf.type is Type.KlassPtr)
+        val klass = (instanceOf.type as Type.KlassPtr).klass
         val typeInfoPtr = klass.typeInfoPtr.llvm
         val objInfoPtr = codegen.bitcast(codegen.kObjHeaderPtr, selectOperand(instanceOf.value))
         val result = codegen.call(context.llvm.isInstanceFunction, listOf(objInfoPtr, typeInfoPtr))
@@ -133,6 +131,19 @@ internal class CfgToBitcode(val ir: Ir, override val context: Context) : Bitcode
 
     private fun selectThrow(thrw: Throw) {
         codegen.call(context.llvm.throwExceptionFunction, listOf(selectOperand(thrw.exception)))
+    }
+
+    private fun selectLandingpad(landingpad: Landingpad) {
+        val landingpadResult = codegen.gxxLandingpad(numClauses = 1, name = "lp")
+        LLVMAddClause(landingpadResult, LLVMConstNull(kInt8Ptr))
+        val exceptionRecord = LLVMBuildExtractValue(codegen.builder, landingpadResult, 0, "er")!!
+
+        val beginCatch = context.llvm.cxaBeginCatchFunction
+        val exceptionRawPtr = codegen.call(beginCatch, listOf(exceptionRecord))
+        val exceptionPtrPtr = codegen.bitcast(codegen.kObjHeaderPtrPtr, exceptionRawPtr)
+        val exceptionPtr = codegen.loadSlot(exceptionPtrPtr, true)
+        codegen.call(context.llvm.cxaEndCatchFunction, listOf())
+        registers[landingpad.exception] = exceptionPtr
     }
 
     private fun selectBinOp(binOp: BinOp) {
@@ -189,6 +200,7 @@ internal class CfgToBitcode(val ir: Ir, override val context: Context) : Bitcode
 
     private fun selectRet(ret: Ret) = codegen.ret(selectOperand(ret.value))
 
+    // TODO: unify with selectCallInterface
     private fun selectCallVirtual(call: CallVirtual) {
         assert(call.args[0].type is Type.KlassPtr) { "0th arg should be Klass but it is : ${call.args[0].type}" }
         val klass = (call.args[0].type as Type.KlassPtr).klass

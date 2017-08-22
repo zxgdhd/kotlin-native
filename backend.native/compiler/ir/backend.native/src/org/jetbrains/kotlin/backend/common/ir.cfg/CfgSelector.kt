@@ -692,20 +692,15 @@ internal class CfgSelector(override val context: Context): IrElementVisitorVoid,
         header.inst(Landingpad(exception))
         currentBlock = header
         irCatches.forEach {
-            if (it == irCatches.last()) {
-                selectStatement(it.result)
-                currentBlock.inst(Br(tryExit))
-            } else {
-                val catchBody = newBlock()
-                val isInstance = currentBlock.inst(InstanceOf(newVariable(Type.boolean), exception, it.parameter.type.cfgType))
-                val nextCatch = newBlock("check_for_${it.parameter.name}")
-                currentBlock.inst(Condbr(isInstance, catchBody, nextCatch))
-                currentBlock = catchBody
-                selectStatement(it.result)
-                // TODO: check for terminal instruction
-                currentBlock.inst(Br(tryExit))
-                currentBlock = nextCatch
-            }
+            val catchBody = newBlock()
+            val isInstance = currentBlock.inst(InstanceOf(newVariable(Type.boolean), exception, it.parameter.type.cfgType))
+            val nextCatch = if (it == irCatches.last()) tryExit else newBlock("check_for_${it.parameter.name}")
+            currentBlock.inst(Condbr(isInstance, catchBody, nextCatch))
+            currentBlock = catchBody
+            selectStatement(it.result)
+            // TODO: check for terminal instruction
+            currentBlock.inst(Br(tryExit))
+            currentBlock = nextCatch
         }
         currentBlock = prevBlock
         return header

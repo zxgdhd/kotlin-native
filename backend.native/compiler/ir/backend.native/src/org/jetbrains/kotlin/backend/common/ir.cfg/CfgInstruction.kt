@@ -33,7 +33,7 @@ class Store(val value: Operand, val address: Variable, val offset: Constant = 0.
     : Instruction(listOf(value, address, offset))
 
 class Landingpad(val exception: Variable)
-    : Instruction(listOf(exception))
+    : Instruction(defs = listOf(exception))
 
 class InstanceOf(val def: Variable, val value: Operand, val type: Type)
     : Instruction(listOf(value, Constant(Type.ptr(), type)), listOf(def))
