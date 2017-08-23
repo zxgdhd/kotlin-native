@@ -67,8 +67,6 @@ struct ContainerHeader {
   uint32_t refCount_;
   // Number of objects in the container.
   uint32_t objectCount_;
-  ContainerHeader* next;
-
 
   inline unsigned refCount() const {
     return refCount_ >> CONTAINER_TAG_SHIFT;
