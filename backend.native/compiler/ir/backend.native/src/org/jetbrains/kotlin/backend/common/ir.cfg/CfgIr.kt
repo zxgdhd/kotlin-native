@@ -23,8 +23,8 @@ class Variable(type: Type, val name: String, val isVar: Boolean = false): Operan
 //-----------------------------------------------------------------------------//
 
 abstract class Instruction(
-    val uses: List<Operand> = listOf<Operand>(),                               // Operands used by this instruction.
-    val defs: List<Variable> = listOf<Variable>()) {                           // Operands defined by this instruction.
+    val uses: List<Operand> = listOf(),                               // Operands used by this instruction.
+    val defs: List<Variable> = listOf()) {                           // Operands defined by this instruction.
     override fun toString() = asString()
 
     init {

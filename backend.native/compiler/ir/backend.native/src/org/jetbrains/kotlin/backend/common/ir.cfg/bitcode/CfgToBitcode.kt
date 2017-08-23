@@ -254,18 +254,19 @@ internal class CfgToBitcode(val ir: Ir, override val context: Context) : Bitcode
 
     private fun selectConst(const: Constant): LLVMValueRef {
         return when(const.type) {
-            Type.boolean -> if (const.value as Boolean) codegen.kTrue else codegen.kFalse
-            Type.byte -> LLVMConstInt(LLVMInt8Type(), (const.value as Byte).toLong(), 1)!!
-            Type.char -> LLVMConstInt(LLVMInt16Type(), (const.value as Char).toLong(), 0)!!
-            Type.short -> LLVMConstInt(LLVMInt16Type(), (const.value as Short).toLong(), 1)!!
-            Type.int -> LLVMConstInt(LLVMInt32Type(), (const.value as Int).toLong(), 1)!!
-            Type.long -> LLVMConstInt(LLVMInt64Type(), (const.value as Long).toLong(), 1)!!
-            Type.float -> LLVMConstRealOfString(LLVMFloatType(), (const.value as Float).toString())!!
-            Type.double -> LLVMConstRealOfString(LLVMDoubleType(), (const.value as Double).toString())!!
-            TypeString -> context.llvm.staticData.kotlinStringLiteral(
+            Type.boolean        -> if (const.value as Boolean) codegen.kTrue else codegen.kFalse
+            Type.byte           -> LLVMConstInt(LLVMInt8Type(), (const.value as Byte).toLong(), 1)!!
+            Type.char           -> LLVMConstInt(LLVMInt16Type(), (const.value as Char).toLong(), 0)!!
+            Type.short          -> LLVMConstInt(LLVMInt16Type(), (const.value as Short).toLong(), 1)!!
+            Type.int            -> LLVMConstInt(LLVMInt32Type(), (const.value as Int).toLong(), 1)!!
+            Type.long           -> LLVMConstInt(LLVMInt64Type(), (const.value as Long).toLong(), 1)!!
+            Type.float          -> LLVMConstRealOfString(LLVMFloatType(), (const.value as Float).toString())!!
+            Type.double         -> LLVMConstRealOfString(LLVMDoubleType(), (const.value as Double).toString())!!
+            TypeString          -> context.llvm.staticData.kotlinStringLiteral(
                     context.builtIns.stringType, const.value as String).llvm
-            TypeUnit -> codegen.kTrue //codegen.theUnitInstanceRef.llvm // TODO: Add support for unit const
-            else            -> TODO("Const ${const.type} is not implemented yet")
+            TypeUnit            -> codegen.kTrue //codegen.theUnitInstanceRef.llvm // TODO: Add support for unit const
+//            is Type.ArrayPtr    -> codegen.staticData.createKotlinArray(const.type.type)
+            else                -> TODO("Const ${const.type} is not implemented yet")
         }
     }
 

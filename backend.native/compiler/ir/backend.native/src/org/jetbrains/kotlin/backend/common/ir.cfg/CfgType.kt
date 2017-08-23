@@ -19,6 +19,7 @@ sealed class Type {
     open class ptr : Type() { override val byteSize: Int get() = 8 }
     class TypePtr(val type: Type)   : ptr()
     class KlassPtr(val klass: Klass): ptr()
+    class ArrayPtr(val type: Type)  : ptr()
     object FunctionPtr              : ptr()
     object BlockPtr                 : ptr()
     object FieldPtr                 : ptr()

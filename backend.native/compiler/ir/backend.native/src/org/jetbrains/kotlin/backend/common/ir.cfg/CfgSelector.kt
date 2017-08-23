@@ -677,8 +677,7 @@ internal class CfgSelector(override val context: Context): IrElementVisitorVoid,
             }
             throw IllegalStateException("IrVararg neither was lowered nor can be statically evaluated")
         }
-        // TODO: replace with a correct array type
-        return Constant(Type.KlassPtr(Klass("Array")), elements)
+        return Constant(Type.ArrayPtr(irVararg.type.cfgType), elements)
     }
 
     //-------------------------------------------------------------------------//
