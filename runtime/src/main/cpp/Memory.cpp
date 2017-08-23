@@ -246,17 +246,9 @@ void FreeContainerHard(ContainerHeader* header);
 
 #if BACON_GC
 
-inline uint32_t getColor(ContainerHeader* container) {
-  return container->objectCount_ & CONTAINER_TAG_GC_COLOR_MASK;
-}
-
-inline void setColor(ContainerHeader* container, uint32_t color) {
-  container->objectCount_ = (container->objectCount_ & ~CONTAINER_TAG_GC_COLOR_MASK) | color;
-}
-
 inline void IncrementRC(ContainerHeader* container) {
   container->refCount_ += CONTAINER_TAG_INCREMENT;
-  setColor(container, CONTAINER_TAG_GC_BLACK);
+  container->setColor(CONTAINER_TAG_GC_BLACK);
 }
 
 inline void DecrementRC(ContainerHeader* container) {
@@ -268,8 +260,8 @@ inline void DecrementRC(ContainerHeader* container) {
 #endif
   }
   else { // Possible root.
-    if (getColor(container) != CONTAINER_TAG_GC_PURPLE) {
-      setColor(container, CONTAINER_TAG_GC_PURPLE);
+    if (container->color() != CONTAINER_TAG_GC_PURPLE) {
+      container->setColor(CONTAINER_TAG_GC_PURPLE);
       if ((container->objectCount_ & CONTAINER_TAG_GC_BUFFERED) == 0) {
         container->objectCount_ |= CONTAINER_TAG_GC_BUFFERED;
         auto nextItem = container;
@@ -507,7 +499,7 @@ void MarkRoots(MemoryState* state) {
   while (current != nullptr) {
     auto container = current;
     //fprintf(stderr, "Processing %p\n", container);
-    auto color = getColor(container);
+    auto color = container->color();
     auto rcIsZero = container->refCount_ == CONTAINER_TAG_NORMAL;
 //    fprintf(stderr, "Color: %d, refcount: %d\n", color, container->refCount_);
     if (color == CONTAINER_TAG_GC_PURPLE && !rcIsZero) {
@@ -535,7 +527,7 @@ void DeleteCorpses(MemoryState* state) {
   while (current != nullptr) {
     auto container = current;
     //fprintf(stderr, "Processing %p\n", container);
-    auto color = getColor(container);
+    auto color = container->color();
     auto rcIsZero = container->refCount_ == CONTAINER_TAG_NORMAL;
     //fprintf(stderr, "Color: %d, refcount: %d\n", color, container->refCount_);
     if (color == CONTAINER_TAG_GC_PURPLE && !rcIsZero) {
@@ -580,8 +572,8 @@ void CollectRoots(MemoryState* state) {
 }
 
 void MarkGray(ContainerHeader* container) {
-  if (getColor(container) == CONTAINER_TAG_GC_GRAY) return;
-  setColor(container, CONTAINER_TAG_GC_GRAY);
+  if (container->color() == CONTAINER_TAG_GC_GRAY) return;
+  container->setColor(CONTAINER_TAG_GC_GRAY);
   traverseContainerReferredObjects(container, [](ObjHeader* ref) {
     auto childContainer = ref->container();
     RuntimeAssert(!isArena(childContainer), "A reference to local object is encountered");
@@ -593,12 +585,12 @@ void MarkGray(ContainerHeader* container) {
 }
 
 void Scan(ContainerHeader* container) {
-  if (getColor(container) != CONTAINER_TAG_GC_GRAY) return;
+  if (container->color() != CONTAINER_TAG_GC_GRAY) return;
   if (container->refCount_ != CONTAINER_TAG_NORMAL) {
     ScanBlack(container);
     return;
   }
-  setColor(container, CONTAINER_TAG_GC_WHITE);
+  container->setColor(CONTAINER_TAG_GC_WHITE);
   traverseContainerReferredObjects(container, [](ObjHeader* ref) {
     auto childContainer = ref->container();
     RuntimeAssert(!isArena(childContainer), "A reference to local object is encountered");
@@ -609,23 +601,23 @@ void Scan(ContainerHeader* container) {
 }
 
 void ScanBlack(ContainerHeader* container) {
-  setColor(container, CONTAINER_TAG_GC_BLACK);
+  container->setColor(CONTAINER_TAG_GC_BLACK);
   traverseContainerReferredObjects(container, [](ObjHeader* ref) {
     auto childContainer = ref->container();
     RuntimeAssert(!isArena(childContainer), "A reference to local object is encountered");
     if (!isPermanent(childContainer)) {
       childContainer->refCount_ += CONTAINER_TAG_INCREMENT;
-      if (getColor(childContainer) != CONTAINER_TAG_GC_BLACK)
+      if (childContainer->color() != CONTAINER_TAG_GC_BLACK)
         ScanBlack(childContainer);
     }
   });
 }
 
 void CollectWhite(MemoryState* state, ContainerHeader* container) {
-  if (getColor(container) != CONTAINER_TAG_GC_WHITE
+  if (container->color() != CONTAINER_TAG_GC_WHITE
         || ((container->objectCount_ & CONTAINER_TAG_GC_BUFFERED) != 0))
     return;
-  setColor(container, CONTAINER_TAG_GC_BLACK);
+  container->setColor(CONTAINER_TAG_GC_BLACK);
   traverseContainerReferredObjects(container, [state](ObjHeader* ref) {
     auto childContainer = ref->container();
     RuntimeAssert(!isArena(childContainer), "A reference to local object is encountered");
@@ -934,7 +926,7 @@ void FreeContainer(ContainerHeader* header) {
   // And release underlying memory.
   if (isFreeable(header)) {
 #if BACON_GC
-    setColor(header, CONTAINER_TAG_GC_BLACK);
+    header->setColor(CONTAINER_TAG_GC_BLACK);
     if ((header->objectCount_ & CONTAINER_TAG_GC_BUFFERED) == 0) {
 
       runDeallocationHooks(header);
@@ -1012,7 +1004,7 @@ void FreeContainerHard(ContainerHeader* header) {
   // And release underlying memory.
   if (isFreeable(header)) {
 #if BACON_GC
-    setColor(header, CONTAINER_TAG_GC_BLACK);
+    header->setColor(CONTAINER_TAG_GC_BLACK);
     if ((header->objectCount_ & CONTAINER_TAG_GC_BUFFERED) == 0) {
 
       runDeallocationHooks(header);
