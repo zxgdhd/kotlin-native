@@ -31,11 +31,11 @@
 // Not recommended for low-end embedded targets.
 #define OPTIMIZE_GC 1
 // Define to 1 to print all memory operations.
-#define TRACE_MEMORY 1
+#define TRACE_MEMORY 0
 // Trace garbage collection phases.
 #define TRACE_GC_PHASES 0
 // Use reference counter update batching.
-#define BATCH_ARC 0
+#define BATCH_ARC 1
 // Use Bacon's algorithm for GC (http://researcher.watson.ibm.com/researcher/files/us-bacon/Bacon03Pure.pdf).
 #define BACON_GC 1
 
@@ -96,6 +96,7 @@ struct MemoryState {
 #if BACON_GC
   ContainerHeader* toFree = nullptr;
   uint32_t toFreeSize = 0;
+  ContainerHeaderList* toFinalize;
 #else
   // Set of references to release.
   ContainerHeaderSet* toFree;
@@ -130,7 +131,7 @@ void FreeContainer(ContainerHeader* header);
 
 #if USE_GC
 
-void FreeContainerNoRef(ContainerHeader* header);
+void FreeContainerNoRef(MemoryState* state, ContainerHeader* header);
 
 #endif
 
@@ -477,38 +478,40 @@ void dumpReachable(const char* prefix, const ContainerHeaderSet* roots) {
 
 #if BACON_GC
 
-void MarkRoots();
-void DeleteCorpses();
-void ScanRoots();
-void CollectRoots();
+void MarkRoots(MemoryState*);
+void DeleteCorpses(MemoryState*);
+void ScanRoots(MemoryState*);
+void CollectRoots(MemoryState*);
 void MarkGray(ContainerHeader* container);
 void Scan(ContainerHeader* container);
 void ScanBlack(ContainerHeader* container);
-void CollectWhite(ContainerHeader* container);
+void CollectWhite(MemoryState*, ContainerHeader* container);
 
-void CollectCycles() {
+void CollectCycles(MemoryState* state) {
 //  DeleteCorpses();
-  fprintf(stderr, "Real candidates: %d\n", memoryState->toFreeSize);
-  MarkRoots();
-  fprintf(stderr, "After MarkRoots(): %d\n", memoryState->toFreeSize);
-  ScanRoots();
-  fprintf(stderr, "After ScanRoots(): %d\n", memoryState->toFreeSize);
-  CollectRoots();
-  fprintf(stderr, "After CollectRoots(): %d\n", memoryState->toFreeSize);
+//  fprintf(stderr, "Real candidates: %d\n", memoryState->toFreeSize);
+  MarkRoots(state);
+//  fprintf(stderr, "After MarkRoots(): %d\n", memoryState->toFreeSize);
+  ScanRoots(state);
+//  fprintf(stderr, "After ScanRoots(): %d\n", memoryState->toFreeSize);
+  CollectRoots(state);
+  for (auto container : *(state->toFinalize))
+    FreeContainerNoRef(state, container);
+  state->toFinalize->clear();
+//  fprintf(stderr, "After CollectRoots(): %d\n", memoryState->toFreeSize);
 }
 
-void MarkRoots() {
-  auto state = memoryState;
+void MarkRoots(MemoryState* state) {
   auto prev = &state->toFree;
   auto current = state->toFree;
   while (current != nullptr) {
     auto container = current;
-    fprintf(stderr, "Processing %p\n", container);
+    //fprintf(stderr, "Processing %p\n", container);
     auto color = getColor(container);
     auto rcIsZero = container->refCount_ == CONTAINER_TAG_NORMAL;
-    fprintf(stderr, "Color: %d, refcount: %d\n", color, container->refCount_);
+//    fprintf(stderr, "Color: %d, refcount: %d\n", color, container->refCount_);
     if (color == CONTAINER_TAG_GC_PURPLE && !rcIsZero) {
-      fprintf(stderr, "%p is Gray\n", container);
+      //fprintf(stderr, "%p is Gray\n", container);
       MarkGray(container);
       prev = &current->next;
       current = current->next;
@@ -519,22 +522,22 @@ void MarkRoots() {
       current = next;
       state->toFreeSize--;
       if (color == CONTAINER_TAG_GC_BLACK && rcIsZero) {
-        FreeContainerNoRef(container);
+        //FreeContainerNoRef(state, container);
+        state->toFinalize->push_back(container);
       }
     }
   }
 }
 
-void DeleteCorpses() {
-  auto state = memoryState;
+void DeleteCorpses(MemoryState* state) {
   auto prev = &state->toFree;
   auto current = state->toFree;
   while (current != nullptr) {
     auto container = current;
-    fprintf(stderr, "Processing %p\n", container);
+    //fprintf(stderr, "Processing %p\n", container);
     auto color = getColor(container);
     auto rcIsZero = container->refCount_ == CONTAINER_TAG_NORMAL;
-    fprintf(stderr, "Color: %d, refcount: %d\n", color, container->refCount_);
+    //fprintf(stderr, "Color: %d, refcount: %d\n", color, container->refCount_);
     if (color == CONTAINER_TAG_GC_PURPLE && !rcIsZero) {
 //      MarkGray(container);
       prev = &current->next;
@@ -546,14 +549,15 @@ void DeleteCorpses() {
       current = next;
       state->toFreeSize--;
       if (color == CONTAINER_TAG_GC_BLACK && rcIsZero) {
-        FreeContainerNoRef(container);
+        //FreeContainerNoRef(state, container);
+        state->toFinalize->push_back(container);
       }
     }
   }
 }
 
-void ScanRoots() {
-  auto current = memoryState->toFree;
+void ScanRoots(MemoryState* state) {
+  auto current = state->toFree;
   while (current != nullptr) {
     auto container = current;
     Scan(container);
@@ -561,8 +565,7 @@ void ScanRoots() {
   }
 }
 
-void CollectRoots() {
-  auto state = memoryState;
+void CollectRoots(MemoryState* state) {
   auto prev = &state->toFree;
   auto current = state->toFree;
   while (current != nullptr) {
@@ -572,7 +575,7 @@ void CollectRoots() {
     current = next;
     state->toFreeSize--;
     container->objectCount_ &= ~CONTAINER_TAG_GC_BUFFERED;
-    CollectWhite(container);
+    CollectWhite(state, container);
   }
 }
 
@@ -618,19 +621,20 @@ void ScanBlack(ContainerHeader* container) {
   });
 }
 
-void CollectWhite(ContainerHeader* container) {
+void CollectWhite(MemoryState* state, ContainerHeader* container) {
   if (getColor(container) != CONTAINER_TAG_GC_WHITE
         || ((container->objectCount_ & CONTAINER_TAG_GC_BUFFERED) != 0))
     return;
   setColor(container, CONTAINER_TAG_GC_BLACK);
-  traverseContainerReferredObjects(container, [](ObjHeader* ref) {
+  traverseContainerReferredObjects(container, [state](ObjHeader* ref) {
     auto childContainer = ref->container();
     RuntimeAssert(!isArena(childContainer), "A reference to local object is encountered");
     if (!isPermanent(childContainer)) {
-      CollectWhite(childContainer);
+      CollectWhite(state, childContainer);
     }
   });
-  FreeContainerNoRef(container);
+  state->toFinalize->push_back(container);
+  //FreeContainerNoRef(state, container);
 }
 
 #else // !BACON_GC
@@ -1206,6 +1210,7 @@ MemoryState* InitMemory() {
 #if BACON_GC
   memoryState->toFree = nullptr;
   memoryState->toFreeSize = 0;
+  memoryState->toFinalize = konanConstructInstance<ContainerHeaderList>();
 #else
   memoryState->toFree = konanConstructInstance<ContainerHeaderSet>();
 #endif
@@ -1238,6 +1243,7 @@ void DeinitMemory(MemoryState* memoryState) {
   GarbageCollect();
 #if BACON_GC
   RuntimeAssert(memoryState->toFreeSize == 0, "Some memory have not been released after GC");
+  konanDestructInstance(memoryState->toFinalize);
 #else // !BACON_GC
   konanDestructInstance(memoryState->toFree);
   memoryState->toFree = nullptr;
@@ -1523,8 +1529,10 @@ void GarbageCollect() {
 
 //  fprintf(stderr, "CYCLE CANDIDATES: %d\n", freeableSize(state));
 
-  CollectCycles();
-  RuntimeAssert(state->toFreeSize == 0, "After GC candidates list must be empty");
+  while (state->toFreeSize > 0) {
+    CollectCycles(state);
+    processFinalizerQueue(state);
+  }
 
   state->gcInProgress = false;
 }
