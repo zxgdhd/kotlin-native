@@ -35,9 +35,9 @@
 // Trace garbage collection phases.
 #define TRACE_GC_PHASES 0
 // Use reference counter update batching.
-#define BATCH_ARC 1
+#define BATCH_ARC 0
 // Use Bacon's algorithm for GC (http://researcher.watson.ibm.com/researcher/files/us-bacon/Bacon03Pure.pdf).
-#define BACON_GC 1
+#define BACON_GC 0
 
 ContainerHeader ObjHeader::theStaticObjectsContainer = {
   CONTAINER_TAG_PERMANENT | CONTAINER_TAG_INCREMENT
