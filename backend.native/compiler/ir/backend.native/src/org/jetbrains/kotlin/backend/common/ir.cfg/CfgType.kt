@@ -2,8 +2,6 @@ package org.jetbrains.kotlin.backend.common.ir.cfg
 
 //-----------------------------------------------------------------------------//
 
-// TODO: introduce tmp val?
-
 sealed class Type {
     abstract val byteSize: Int
 
@@ -17,7 +15,6 @@ sealed class Type {
     object char   : Type() { override val byteSize: Int get() = 2 }
 
     open class ptr : Type() { override val byteSize: Int get() = 8 }
-    class TypePtr(val type: Type)   : ptr()
     class KlassPtr(val klass: Klass): ptr()
     class ArrayPtr(val type: Type)  : ptr()
     object FunctionPtr              : ptr()
@@ -25,6 +22,16 @@ sealed class Type {
     object FieldPtr                 : ptr()
 
     override fun toString() = asString()
+}
+
+
+// Denotes kind of variable
+enum class Kind {
+    ARG,            // Function argument
+    FIELD,          // Class field
+    LOCAL,          // Local variable
+    TMP,            // Created by CFG selection
+    STATIC          // Field that doesn't belong to any object
 }
 
 //--- Predefined types --------------------------------------------------------//
@@ -36,16 +43,6 @@ val TypeAny     = Type.KlassPtr(anyKlass)
 val TypeString  = Type.KlassPtr(Klass("String"))
 
 //--- Utils -------------------------------------------------------------------//
-
-fun Type.KlassPtr.fieldOffset(fieldName: String): Int {
-    var offset = 0
-    klass.fields.forEach { field ->
-        if (field.name == fieldName) return offset
-        offset += field.type.byteSize
-    }
-    println("ERROR: No field $fieldName found in class $klass")
-    return -1
-}
 
 fun Klass.isAny() = this == anyKlass
 

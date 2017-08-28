@@ -15,10 +15,8 @@ internal fun emitBitcodeFromCfg(context: Context) {
 internal class CfgToBitcode(val ir: Ir, override val context: Context) : BitcodeSelectionUtils {
     private val codegen = CodeGenerator(context)
 
-    private val variableManager: VariableManager
-        get() = codegen.variableManager
-
-    private val registers = mutableMapOf<Variable, LLVMValueRef>()
+    private val registers: Registers
+        get() = codegen.registers
 
     init {
         context.cfgLlvmDeclarations = createCfgLlvmDeclarations(context)
@@ -104,7 +102,9 @@ internal class CfgToBitcode(val ir: Ir, override val context: Context) : Bitcode
             is Br               -> this::selectBr
             is Condbr           -> this::selectCondbr
             is Store            -> this::selectStore
+            is Load             -> this::selectLoad
             is Alloc            -> this::selectAlloc
+            is FieldPtr         -> this::selectFieldPtr
             is GT0              -> this::selectGT0
             is LT0              -> this::selectLT0
             is BinOp            -> this::selectBinOp
@@ -118,6 +118,15 @@ internal class CfgToBitcode(val ir: Ir, override val context: Context) : Bitcode
 
     private fun stub(instruction: Instruction) {
         context.log { "$instruction is not supported yet" }
+    }
+
+    private fun selectFieldPtr(fieldPtr: FieldPtr) {
+        assert(fieldPtr.obj.type is Type.KlassPtr)
+        val klass = (fieldPtr.obj.type as Type.KlassPtr).klass
+        val typePtr = pointerType(context.cfgLlvmDeclarations.classes[klass]!!.bodyType)
+        val objectPtr = codegen.gep(selectOperand(fieldPtr.obj), Int32(1).llvm)
+        val typedObjectPtr = codegen.bitcast(typePtr, objectPtr)
+        registers[fieldPtr.def] = LLVMBuildStructGEP(codegen.builder, typedObjectPtr, fieldPtr.fieldIndex, "")!!
     }
 
     private fun selectInstanceOf(instanceOf: InstanceOf) {
@@ -154,7 +163,7 @@ internal class CfgToBitcode(val ir: Ir, override val context: Context) : Bitcode
             is BinOp.Mul    -> codegen::mul
             is BinOp.Sdiv   -> codegen::div
             else -> error("$binOp is not implemented yet")
-        }(selectOperand(binOp.op1), selectOperand(binOp.op2), "")
+        } (selectOperand(binOp.op1), selectOperand(binOp.op2), "")
     }
 
     private fun selectLT0(lt0: LT0) {
@@ -166,7 +175,7 @@ internal class CfgToBitcode(val ir: Ir, override val context: Context) : Bitcode
     }
 
     private fun selectAlloc(alloc: Alloc) {
-        registers[alloc.def] = variableManager.addressOf(variableManager.createVariable(alloc.def))
+        registers.createVariable(alloc.def)
     }
 
     private fun selectAllocInstance(allocInstance: AllocInstance) {
@@ -175,8 +184,15 @@ internal class CfgToBitcode(val ir: Ir, override val context: Context) : Bitcode
 
     private fun selectStore(store: Store) {
         val value = selectOperand(store.value)
-        val address = store.address.address
-        codegen.store(value, address)
+        val ptr = selectOperand(store.address)
+        val typedPtr = codegen.bitcast(pointerType(getLlvmType(store.value.type)), ptr)
+        codegen.storeAnyLocal(value, typedPtr)
+    }
+
+    private fun selectLoad(load: Load) {
+        val ptr = selectOperand(load.base)
+//        val typedPtr = codegen.bitcast(pointerType(getLlvmType(load.def.type)), ptr)
+        registers[load.def] = codegen.loadSlot(ptr, load.isVar)
     }
 
     private fun selectInvoke(invoke: Invoke) {
@@ -217,12 +233,7 @@ internal class CfgToBitcode(val ir: Ir, override val context: Context) : Bitcode
         val llvmMethod = codegen.load(slot)
         val functionPtrType = pointerType(getLlvmType(call.callee))
         val function = codegen.bitcast(functionPtrType, llvmMethod)
-        val def = codegen.call(
-                function,
-                call.args.map { selectOperand(it) },
-                if (call.def != CfgUnit) Lifetime.LOCAL else Lifetime.IRRELEVANT
-        )
-        if (call.def != CfgUnit) registers[call.def] = def
+        call(function, call.args, call.def)
     }
 
     private fun selectCallInterface(call: CallInterface) {
@@ -235,21 +246,20 @@ internal class CfgToBitcode(val ir: Ir, override val context: Context) : Bitcode
         val llvmMethod = codegen.call(context.llvm.lookupOpenMethodFunction, lookupArgs)
         val functionPtrType = pointerType(getLlvmType(call.callee))
         val function = codegen.bitcast(functionPtrType, llvmMethod)
-        val def = codegen.call(
-                function,
-                call.args.map { selectOperand(it) },
-                if (call.def != CfgUnit) Lifetime.LOCAL else Lifetime.IRRELEVANT
-        )
-        if (call.def != CfgUnit) registers[call.def] = def
+        call(function, call.args, call.def)
     }
 
     private fun selectCall(call: Call) {
-        val def = codegen.call(
-                call.callee.llvmFunction,
-                call.args.map { selectOperand(it) },
-                if (call.def != CfgUnit) Lifetime.LOCAL else Lifetime.IRRELEVANT
+        call(call.callee.llvmFunction, call.args, call.def)
+    }
+
+    private fun call(function: LLVMValueRef, args: List<Operand>, def: Variable) {
+        val result = codegen.call(
+                function,
+                args.map { selectOperand(it) },
+                if (def != CfgUnit) Lifetime.LOCAL else Lifetime.IRRELEVANT
         )
-        if (call.def != CfgUnit) registers[call.def] = def
+        if (def != CfgUnit) registers[def] = result
     }
 
     private fun selectConst(const: Constant): LLVMValueRef {
@@ -276,29 +286,6 @@ internal class CfgToBitcode(val ir: Ir, override val context: Context) : Bitcode
         else        -> error("Unexpected operand type")
     }
 
-    val Variable.address: LLVMValueRef
-        get() {
-            val indexOf = variableManager.indexOf(this)
-            if (indexOf < 0) {
-                for (register in registers) {
-                    println(register)
-                }
-                error("No address for $this")
-            }
-            return variableManager.addressOf(indexOf)
-        }
-
     val Variable.value: LLVMValueRef
-        get() {
-            val indexOf = variableManager.indexOf(this)
-            if (indexOf == -1) {
-                if (registers[this] == null) {
-                    error("No value for $this")
-                } else {
-                    return registers[this]!!
-                }
-            }
-            return variableManager.load(indexOf)
-        }
-
+        get() = registers[this]
 }

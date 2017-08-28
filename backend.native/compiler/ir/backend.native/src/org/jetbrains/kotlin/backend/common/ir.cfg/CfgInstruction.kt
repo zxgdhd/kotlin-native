@@ -14,6 +14,9 @@ class CallVirtual(val callee: Function, val def: Variable, val args: List<Operan
 class CallInterface(val callee: Function, val def: Variable, val args: List<Operand>)
     : Instruction((listOf(callee.ptr) + args), listOf(def))
 
+class Builtin(val def: Variable, val functionName: String, args: List<Operand>)
+    : Instruction(listOf(Constant(TypeString, functionName)) + args, listOf(def))
+
 class Condbr(val condition: Operand, val targetTrue: Block, val targetFalse: Block)
     : Instruction(listOf(condition, targetFalse.ptr, targetTrue.ptr))
 
@@ -26,11 +29,14 @@ class Ret(val value: Operand = CfgNull)
 class Throw(val exception: Operand)
     : Instruction(listOf(exception))
 
-class Load(def: Variable, address: Operand, offset: Constant)
-    : Instruction(listOf(address, offset), listOf(def))
+class FieldPtr(val def: Variable, val obj: Operand, val fieldIndex: Int)
+    : Instruction(listOf(obj, fieldIndex.cfg), listOf(def))
 
-class Store(val value: Operand, val address: Variable, val offset: Constant = 0.cfg)
-    : Instruction(listOf(value, address, offset))
+class Load(val def: Variable, val base: Operand, val isVar: Boolean)
+    : Instruction(listOf(base), listOf(def))
+
+class Store(val value: Operand, val address: Operand)
+    : Instruction(listOf(value, address))
 
 class Landingpad(val exception: Variable)
     : Instruction(defs = listOf(exception))

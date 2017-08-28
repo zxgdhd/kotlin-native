@@ -14,7 +14,7 @@ internal class CodeGenerator(override val context: Context) : BitcodeSelectionUt
 
     private val blockMap = mutableMapOf<Block, LLVMBasicBlockRef>()
 
-    val variableManager = VariableManager(this)
+    val registers = Registers(this)
 
     private var returnSlot: LLVMValueRef? = null
     private var function: LLVMValueRef? = null
@@ -174,7 +174,7 @@ internal class CodeGenerator(override val context: Context) : BitcodeSelectionUt
             LLVMBuildResume(builder, landingpad)
         }
         blockMap.clear()
-        variableManager.clear()
+//        variableManager.clear()
         returns.clear()
         returnSlot = null
         slotsPhi = null
@@ -287,7 +287,7 @@ internal class CodeGenerator(override val context: Context) : BitcodeSelectionUt
                 SlotType.RETURN -> returnSlot!!
             // TODO: for RETURN_IF_ARENA choose between created slot and arenaSlot
             // dynamically.
-                SlotType.ANONYMOUS, SlotType.RETURN_IF_ARENA -> variableManager.createAnonymousSlot()
+                SlotType.ANONYMOUS, SlotType.RETURN_IF_ARENA -> registers.createAnonymousSlot(kObjHeaderPtr)
                 else -> throw Error("Incorrect slot type")
             }
             (args + resultSlot)

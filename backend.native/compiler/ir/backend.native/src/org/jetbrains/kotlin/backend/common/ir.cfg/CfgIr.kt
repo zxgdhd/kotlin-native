@@ -16,15 +16,19 @@ class Constant(type: Type, val value: Any): Operand(type) {                    /
 //-----------------------------------------------------------------------------//
 
 // TODO: remove isVar
-class Variable(type: Type, val name: String, val isVar: Boolean = false): Operand(type) {                  // Operand which value is unknown at compile time.
+class Variable(type: Type,
+               val name: String,
+               val kind: Kind,
+               val isVar: Boolean = false
+): Operand(type) {                                                              // Operand which value is unknown at compile time.
     override fun toString() = asString()
 }
 
 //-----------------------------------------------------------------------------//
 
 abstract class Instruction(
-    val uses: List<Operand> = listOf(),                               // Operands used by this instruction.
-    val defs: List<Variable> = listOf()) {                           // Operands defined by this instruction.
+    val uses: List<Operand> = listOf(),                                         // Operands used by this instruction.
+    val defs: List<Variable> = listOf()) {                                      // Operands defined by this instruction.
     override fun toString() = asString()
 
     init {

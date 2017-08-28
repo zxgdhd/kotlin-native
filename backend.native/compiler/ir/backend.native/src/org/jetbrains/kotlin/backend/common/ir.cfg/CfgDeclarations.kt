@@ -95,7 +95,7 @@ internal interface TypeResolver : RuntimeAware {
                 classes[this] = klass
                 if (!isExternal(this)) {
                     getFields(this).forEach {
-                        klass.fields += Variable(it.type.cfgType, it.toCfgName())
+                        klass.fields += Variable(it.type.cfgType, it.toCfgName(), Kind.FIELD)
                     }
                     klass.superclass = getSuperClassOrAny().cfgKlass
                     klass.interfaces += this.implementedInterfaces.map { it.cfgKlass }
@@ -122,7 +122,7 @@ internal interface TypeResolver : RuntimeAware {
                 }
                 val function = Function(this.toCfgName(), returnType)
                 function.parameters += this.allParameters.map {
-                    Variable(it.type.cfgType, it.name.asString())
+                    Variable(it.type.cfgType, it.name.asString(), Kind.ARG)
                 }
                 functions[this] = function
                 funcMetas[function] = this.metaInfo

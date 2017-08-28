@@ -5,12 +5,15 @@ package org.jetbrains.kotlin.backend.common.ir.cfg
 val CfgNull = Constant(TypeUnit, "null")
 val Int.cfg : Constant
     get() = Constant(Type.int, this)
-val CfgUnit = Variable(TypeUnit, "unit")
+val CfgUnit = Variable(TypeUnit, "unit", Kind.STATIC)
 
 //--- Opcode ------------------------------------------------------------------//
 
 fun Instruction.isTerminal() =
-        this is Br || this is Ret || this is Invoke
+        this is Br ||
+        this is Ret ||
+        this is Invoke ||
+        this is Condbr
 
 
 //--- Block -------------------------------------------------------------------//
@@ -45,6 +48,8 @@ fun Block.inst(instruction: Instruction): Variable {
         is Alloc            -> instruction.def
         is AllocInstance    -> instruction.def
         is InstanceOf       -> instruction.def
+        is FieldPtr         -> instruction.def
+        is Load             -> instruction.def
         is GT0              -> instruction.def
         is LT0              -> instruction.def
         is BinOp            -> instruction.def

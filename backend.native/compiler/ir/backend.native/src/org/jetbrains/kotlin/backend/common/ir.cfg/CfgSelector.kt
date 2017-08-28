@@ -50,8 +50,8 @@ internal class CfgSelector(override val context: Context): IrElementVisitorVoid,
 
     //-------------------------------------------------------------------------//
 
-    private fun newVariable(type: Type, name: String = currentFunction.genVariableName())
-            = Variable(type, name)
+    private fun newVariable(type: Type, kind: Kind = Kind.TMP, name: String = currentFunction.genVariableName())
+            = Variable(type, name, kind)
 
     //-------------------------------------------------------------------------//
 
@@ -140,6 +140,7 @@ internal class CfgSelector(override val context: Context): IrElementVisitorVoid,
                 else -> throw TODO("unsupported function body type: $body")
             }
         }
+        variableMap.clear()
     }
 
     //-------------------------------------------------------------------------//
@@ -166,7 +167,7 @@ internal class CfgSelector(override val context: Context): IrElementVisitorVoid,
             is IrTry                       -> selectTry                      (statement)
             is IrGetField                  -> selectGetField                 (statement)
             is IrSetField                  -> selectSetField                 (statement)
-            is IrGetObjectValue            -> selectGetObjectValue           (statement)
+//            is IrGetObjectValue            -> selectGetObjectValue           (statement)
             is IrInstanceInitializerCall   -> selectInstanceInitializerCall  (statement)
             else -> {
                 println("ERROR: Not implemented yet: $statement")
@@ -190,7 +191,7 @@ internal class CfgSelector(override val context: Context): IrElementVisitorVoid,
         val continueBlock = newBlock("label_continue")
 
         val address = Constant(Type.ptr(), "FIXME")
-        val objectVal = currentBlock.inst(Load(newVariable(statement.type.cfgType), address, 0.cfg))
+        val objectVal = currentBlock.inst(Load(newVariable(statement.type.cfgType), address,  false))
         val condition = currentBlock.inst(BinOp.IcmpNE(newVariable(Type.boolean), objectVal, CfgNull))
         currentBlock.inst(Condbr(condition, continueBlock, initBlock))
 
@@ -210,13 +211,13 @@ internal class CfgSelector(override val context: Context): IrElementVisitorVoid,
             val thisPtr   = selectStatement(receiver)                                       // Get object pointer.
             val thisType  = receiver.type.cfgType as? Type.KlassPtr
                     ?: error("selecting GetFild on primitive type")                         // Get object type.
-            val offsetVal = thisType.fieldOffset(statement.descriptor.toCfgName())          // Calculate field offset inside the object.
-            val offset    = Constant(Type.int, offsetVal)                                    //
-            currentBlock.inst(Load(fieldType, thisPtr, offset))                                   // TODO make "load" receiving offset as Int
+            val fieldIndex = thisType.klass.fieldIndex(statement.descriptor.toCfgName())
+            val fieldPtr = currentBlock.inst(FieldPtr(newVariable(Type.FieldPtr), thisPtr, fieldIndex))
+            currentBlock.inst(Load(fieldType, fieldPtr, statement.descriptor.isVar))
         } else {                                                                            // It is global field.
             val fieldName = statement.descriptor.toCfgName()
             val globalPtr = Constant(Type.FieldPtr, fieldName)                                  // TODO should we use special type here?
-            currentBlock.inst(Load(fieldType, globalPtr, 0.cfg))
+            currentBlock.inst(Load(fieldType, globalPtr, statement.descriptor.isVar))
         }
     }
 
@@ -229,16 +230,19 @@ internal class CfgSelector(override val context: Context): IrElementVisitorVoid,
             val thisPtr = selectStatement(receiver)                                         // Pointer to the object.
             val thisType  = receiver.type.cfgType as? Type.KlassPtr
                     ?: error("selecting GetField on primitive type")                                    // Get object type.
-            val offsetVal = thisType.fieldOffset(statement.descriptor.toCfgName())          // Calculate field offset inside the object.
-            val offset    = Constant(Type.int, offsetVal)                                    //
-//            currentBlock.inst(Store(value, thisPtr, offset))                                      // TODO make "load" receiving offset as Int
+            val fieldIndex = thisType.klass.fieldIndex(statement.descriptor.toCfgName())
+            val fieldPtr = currentBlock.inst(FieldPtr(newVariable(Type.FieldPtr), thisPtr, fieldIndex))
+            currentBlock.inst(Store(value, fieldPtr))
         } else {                                                                            // It is global field.
             val fieldName = statement.descriptor.toCfgName()
             val globalPtr = Constant(Type.FieldPtr, fieldName)                                  // TODO should we use special type here?
-//            currentBlock.inst(Store(value, globalPtr, Cfg0))
+//            currentBlock.inst(Store(value, globalPtr, 0.cfg))
         }
         return CfgUnit
     }
+
+    private fun Klass.fieldIndex(fieldName: String): Int
+            = this.fields.indexOfFirst { fieldName == it.name }
 
     //-------------------------------------------------------------------------//
 
@@ -312,7 +316,7 @@ internal class CfgSelector(override val context: Context): IrElementVisitorVoid,
 
     private fun selectImplicitNotNull(statement: IrTypeOperatorCall): Operand {
         println("ERROR: Not implemented yet: selectImplicitNotNull") // Also it's not implemented in IrToBitcode.
-        return Variable(Type.int, "invalid")
+        return CfgUnit
     }
 
     //-------------------------------------------------------------------------//
@@ -406,16 +410,7 @@ internal class CfgSelector(override val context: Context): IrElementVisitorVoid,
         val name = descriptor.fqNameUnsafe.asString()
 
         when (name) {
-            "konan.internal.areEqualByValue" -> {
-                val arg0 = args[0]
-                val arg1 = args[1]
-                return when (arg0.type) {
-                    Type.float, Type.double ->
-                        currentBlock.inst(BinOp.FcmpEq(newVariable(Type.boolean), arg0, arg1))
-                    else ->
-                        currentBlock.inst(BinOp.IcmpEq(newVariable(Type.boolean), arg0, arg1))
-                }
-            }
+            "konan.internal.areEqualByValue" -> return currentBlock.inst(Builtin(newVariable(Type.boolean), name, args))
             "konan.internal.getContinuation" -> return CfgUnit // coroutines are not supported yet
         }
 
@@ -428,13 +423,13 @@ internal class CfgSelector(override val context: Context): IrElementVisitorVoid,
                 val pointerType = descriptor.returnType!!.cfgType // pointerType(codegen.getLLVMType(descriptor.returnType!!))
                 val rawPointer = args.last()
                 val pointer = currentBlock.inst(Bitcast(newVariable(pointerType), rawPointer, pointerType))
-                currentBlock.inst(Load(newVariable(pointerType), pointer, 0.cfg))
+                currentBlock.inst(Load(newVariable(pointerType), pointer, false))
             }
             in interop.writePrimitive -> {
                 val pointerType = descriptor.valueParameters.last().type.cfgType //pointerType(codegen.getLLVMType(descriptor.valueParameters.last().type))
                 val rawPointer = args[1]
                 val pointer = currentBlock.inst(Bitcast(newVariable(pointerType), rawPointer, pointerType))
-                currentBlock.inst(Store(args[2], pointer, 0.cfg))
+                currentBlock.inst(Store(args[2], pointer))
                 CfgUnit
             }
             context.builtIns.nativePtrPlusLong -> currentBlock.inst(Gep(newVariable(Type.ptr()), args[0], args[1]))
@@ -458,8 +453,6 @@ internal class CfgSelector(override val context: Context): IrElementVisitorVoid,
 
     private fun selectConstructorCall(irCall: IrCall) : Operand {
         assert(irCall.descriptor is ConstructorDescriptor)
-        // allocate memory for the instance
-        // call init
         val descriptor = irCall.descriptor as ConstructorDescriptor
         val constructedClass = descriptor.constructedClass.cfgKlass
         val objPtr = currentBlock.inst(AllocInstance(newVariable(irCall.type.cfgType), constructedClass))
@@ -648,7 +641,7 @@ internal class CfgSelector(override val context: Context): IrElementVisitorVoid,
     //-------------------------------------------------------------------------//
 
     private fun selectVariable(irVariable: IrVariable): Operand {
-        val variable = newVariable(irVariable.descriptor.type.cfgType, irVariable.descriptor.name.asString())
+        val variable = Variable(irVariable.descriptor.type.cfgType, irVariable.descriptor.name.asString(), Kind.LOCAL, irVariable.descriptor.isVar)
         variableMap[irVariable.descriptor] = variable
         currentBlock.inst(Alloc(variable, variable.type))
         return irVariable.initializer?.let {
@@ -686,7 +679,7 @@ internal class CfgSelector(override val context: Context): IrElementVisitorVoid,
         val prevBlock = currentBlock
 
         val header = newBlock("catch_header")
-        val exception = Variable(Type.ptr(), "exception")
+        val exception = Variable(Type.ptr(), "exception", Kind.TMP)
 
         header.inst(Landingpad(exception))
         currentBlock = header

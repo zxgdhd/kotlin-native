@@ -1360,7 +1360,6 @@ internal class CodeGeneratorVisitor(val context: Context) : IrElementVisitorVoid
     */
     private fun fieldPtrOfClass(thisPtr: LLVMValueRef, value: PropertyDescriptor): LLVMValueRef {
         val fieldInfo = context.llvmDeclarations.forField(value)
-
         val typePtr = pointerType(fieldInfo.classBodyType)
         val objectPtr = LLVMBuildGEP(codegen.builder, thisPtr, cValuesOf(kImmOne), 1, "")
         val typedObjPtr = codegen.bitcast(typePtr, objectPtr!!)
