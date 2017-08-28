@@ -30,6 +30,7 @@ enum class Kind {
     ARG,            // Function argument
     FIELD,          // Class field
     LOCAL,          // Local variable
+    LOCAL_IMMUT,    //
     TMP,            // Created by CFG selection
     STATIC          // Field that doesn't belong to any object
 }

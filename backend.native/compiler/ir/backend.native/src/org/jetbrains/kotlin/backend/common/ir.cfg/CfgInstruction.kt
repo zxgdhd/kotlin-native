@@ -48,7 +48,8 @@ class NotInstanceOf(val def: Variable, val value: Operand, val type: Type)
     : Instruction(listOf(value, Constant(Type.ptr(), type)), listOf(def))
 
 // Allocate on stack
-class Alloc(val def: Variable, val type: Type)
+class Alloc(val def: Variable, val type: Type, val value: Operand? = null)
+// TODO: add value to uses
     : Instruction(listOf(Constant(type, type)), listOf(def))
 
 // Allocate on heap

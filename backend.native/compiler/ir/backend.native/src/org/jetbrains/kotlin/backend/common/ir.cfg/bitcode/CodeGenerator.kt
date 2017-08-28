@@ -264,11 +264,11 @@ internal class CodeGenerator(override val context: Context) : BitcodeSelectionUt
         return LLVMBuildPhi(builder, type, name)!!
     }
 
-    fun updateReturnRef(value: LLVMValueRef, address: LLVMValueRef) {
+    private fun updateReturnRef(value: LLVMValueRef, address: LLVMValueRef) {
         call(context.llvm.updateReturnRefFunction, listOf(address, value))
     }
 
-    fun updateRef(value: LLVMValueRef, address: LLVMValueRef, ignoreOld: Boolean = false) {
+    private fun updateRef(value: LLVMValueRef, address: LLVMValueRef, ignoreOld: Boolean = false) {
         call(if (ignoreOld) context.llvm.setRefFunction else context.llvm.updateRefFunction,
                 listOf(address, value))
     }

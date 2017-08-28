@@ -175,7 +175,7 @@ internal class CfgToBitcode(val ir: Ir, override val context: Context) : Bitcode
     }
 
     private fun selectAlloc(alloc: Alloc) {
-        registers.createVariable(alloc.def)
+        registers.createVariable(alloc.def, alloc.value?.let { selectOperand(it) })
     }
 
     private fun selectAllocInstance(allocInstance: AllocInstance) {
@@ -191,8 +191,8 @@ internal class CfgToBitcode(val ir: Ir, override val context: Context) : Bitcode
 
     private fun selectLoad(load: Load) {
         val ptr = selectOperand(load.base)
-//        val typedPtr = codegen.bitcast(pointerType(getLlvmType(load.def.type)), ptr)
-        registers[load.def] = codegen.loadSlot(ptr, load.isVar)
+        val typedPtr = codegen.bitcast(pointerType(getLlvmType(load.def.type)), ptr)
+        registers[load.def] = codegen.loadSlot(typedPtr, load.isVar)
     }
 
     private fun selectInvoke(invoke: Invoke) {

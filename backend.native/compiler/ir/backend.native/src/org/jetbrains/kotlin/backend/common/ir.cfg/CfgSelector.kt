@@ -641,14 +641,14 @@ internal class CfgSelector(override val context: Context): IrElementVisitorVoid,
     //-------------------------------------------------------------------------//
 
     private fun selectVariable(irVariable: IrVariable): Operand {
-        val variable = Variable(irVariable.descriptor.type.cfgType, irVariable.descriptor.name.asString(), Kind.LOCAL, irVariable.descriptor.isVar)
+
+        val (value, kind) = irVariable.initializer?.let {
+            Pair(selectStatement(it), if (irVariable.descriptor.isVar) Kind.LOCAL else Kind.LOCAL_IMMUT)
+        } ?: Pair(null, Kind.LOCAL)
+        val variable = Variable(irVariable.descriptor.type.cfgType, irVariable.descriptor.name.asString(), kind, irVariable.descriptor.isVar)
         variableMap[irVariable.descriptor] = variable
-        currentBlock.inst(Alloc(variable, variable.type))
-        return irVariable.initializer?.let {
-            val value = selectStatement(it)
-            currentBlock.inst(Store(value, variable))
-            value
-        } ?: CfgUnit
+        currentBlock.inst(Alloc(variable, variable.type, value))
+        return CfgUnit
     }
 
     //-------------------------------------------------------------------------//

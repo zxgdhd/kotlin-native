@@ -3,8 +3,6 @@ package org.jetbrains.kotlin.backend.common.ir.cfg.bitcode
 import llvm.*
 import org.jetbrains.kotlin.backend.common.ir.cfg.Kind
 import org.jetbrains.kotlin.backend.common.ir.cfg.Variable
-import org.jetbrains.kotlin.backend.konan.llvm.isObjectType
-import org.jetbrains.kotlin.backend.konan.llvm.kObjHeaderPtr
 
 
 internal class Registers(val codegen: CodeGenerator) {
@@ -16,7 +14,8 @@ internal class Registers(val codegen: CodeGenerator) {
         }
         return when (variable.kind) {
             Kind.LOCAL              -> codegen.loadSlot(registers[variable]!!, variable.isVar)
-            Kind.TMP, Kind.ARG      -> registers[variable]!!
+            Kind.TMP, Kind.ARG,
+            Kind.LOCAL_IMMUT        -> registers[variable]!!
             else                    -> error("Cannot get value for $variable")
         }
 
@@ -30,12 +29,14 @@ internal class Registers(val codegen: CodeGenerator) {
         }
     }
 
-    fun createVariable(variable: Variable) {
+    fun createVariable(variable: Variable, initVal: LLVMValueRef?) {
         when (variable.kind) {
             Kind.LOCAL -> {
                 val slot = codegen.alloca(codegen.getLlvmType(variable.type), variable.name)
+                initVal?.let { codegen.storeAnyLocal(initVal, slot) }
                 registers[variable] = slot
             }
+            Kind.LOCAL_IMMUT -> registers[variable] = initVal!!
             else -> error("Cannot create variable record for ${variable.kind}")
         }
     }
