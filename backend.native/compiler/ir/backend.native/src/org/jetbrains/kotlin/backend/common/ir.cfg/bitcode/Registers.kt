@@ -37,7 +37,7 @@ internal class Registers(val codegen: CodeGenerator) {
                 registers[variable] = slot
             }
             Kind.LOCAL_IMMUT -> registers[variable] = initVal!!
-            else -> error("Cannot create variable record for ${variable.kind}")
+            else -> error("Cannot create variable record of kind ${variable.kind}")
         }
     }
 

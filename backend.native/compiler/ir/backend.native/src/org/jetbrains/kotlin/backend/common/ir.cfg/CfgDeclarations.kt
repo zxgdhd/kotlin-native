@@ -94,8 +94,8 @@ internal interface TypeResolver : RuntimeAware {
                 val klass = createCfgKlass(this)
                 classes[this] = klass
                 if (!isExternal(this)) {
-                    getFields(this).forEach {
-                        klass.fields += Variable(it.type.cfgType, it.toCfgName(), Kind.FIELD)
+                    klass.fields += getFields(this).map {
+                        Variable(it.type.cfgType, it.toCfgName(), Kind.FIELD)
                     }
                     klass.superclass = getSuperClassOrAny().cfgKlass
                     klass.interfaces += this.implementedInterfaces.map { it.cfgKlass }
@@ -191,7 +191,9 @@ internal interface TypeResolver : RuntimeAware {
         }
 
     private val FunctionDescriptor.metaInfo: FunctionMetaInfo
-        get() = FunctionMetaInfo(this.isExported(), this.isIntrinsic, this.module != context.ir.irModule.descriptor, functionName.localHash, if (this.isExported()) this.symbolName else this.functionName)
+        get() = FunctionMetaInfo(this.isExported(), this.isIntrinsic,
+                isExternal(this), functionName.localHash,
+                if (this.isExported()) this.symbolName else this.functionName)
 
     private val ClassDescriptor.metaInfo: KlassMetaInfo
         get() {

@@ -102,7 +102,7 @@ internal class CodeGenerator(override val context: Context) : BitcodeSelectionUt
     fun prologue(llvmFunction:LLVMValueRef, returnType:LLVMTypeRef,
                  lazyEnterBlock: () -> LLVMBasicBlockRef) {
         if (isObjectType(returnType)) {
-            returnSlot = LLVMGetParam(llvmFunction, numParameters(llvmFunction.type))
+            returnSlot = LLVMGetParam(llvmFunction, numParameters(llvmFunction.type) - 1)
         }
 
         this.function = llvmFunction
@@ -120,8 +120,6 @@ internal class CodeGenerator(override val context: Context) : BitcodeSelectionUt
         slotsPhi = phi(kObjHeaderPtrPtr)
         arenaSlot = intToPtr(
                 or(ptrToInt(slotsPhi, intPtrType), immOneIntPtrType), kObjHeaderPtrPtr)
-
-
     }
 
     fun epilogue() {
@@ -174,7 +172,7 @@ internal class CodeGenerator(override val context: Context) : BitcodeSelectionUt
             LLVMBuildResume(builder, landingpad)
         }
         blockMap.clear()
-//        variableManager.clear()
+        registers.clear()
         returns.clear()
         returnSlot = null
         slotsPhi = null
@@ -288,15 +286,15 @@ internal class CodeGenerator(override val context: Context) : BitcodeSelectionUt
             // TODO: for RETURN_IF_ARENA choose between created slot and arenaSlot
             // dynamically.
                 SlotType.ANONYMOUS, SlotType.RETURN_IF_ARENA -> registers.createAnonymousSlot(kObjHeaderPtr)
-                else -> throw Error("Incorrect slot type")
+                else -> error("Incorrect slot type")
             }
             (args + resultSlot)
         } else {
             args
         }
 
-    fun allocInstance(typeInfo: LLVMValueRef): LLVMValueRef =
-            call(context.llvm.allocInstanceFunction, listOf(typeInfo), Lifetime.LOCAL)
+    fun allocInstance(typeInfo: LLVMValueRef, lifetime: Lifetime): LLVMValueRef =
+            call(context.llvm.allocInstanceFunction, listOf(typeInfo), lifetime)
 
     fun call(callee: LLVMValueRef,
              args: List<LLVMValueRef>,
@@ -337,7 +335,7 @@ internal class CodeGenerator(override val context: Context) : BitcodeSelectionUt
     fun ret(value: LLVMValueRef?) {
         positionHolder.setAfterTerminator()
         LLVMBuildBr(builder, epilogueBlock)!!
-        if (value != null) {
+        if (value != null ) {
             returns[currentBlock] = value
         }
     }

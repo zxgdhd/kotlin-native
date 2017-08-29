@@ -24,6 +24,7 @@ sealed class Type {
     override fun toString() = asString()
 }
 
+//-----------------------------------------------------------------------------//
 
 // Denotes kind of variable
 enum class Kind {

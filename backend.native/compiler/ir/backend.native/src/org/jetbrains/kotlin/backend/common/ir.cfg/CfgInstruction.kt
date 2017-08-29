@@ -23,7 +23,7 @@ class Condbr(val condition: Operand, val targetTrue: Block, val targetFalse: Blo
 class Br(val target: Block)
     : Instruction(listOf(target.ptr))
 
-class Ret(val value: Operand = CfgNull)
+class Ret(val value: Operand = CfgUnit)
     : Instruction(listOf(value))
 
 class Throw(val exception: Operand)

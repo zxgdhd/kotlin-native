@@ -3,7 +3,7 @@ package org.jetbrains.kotlin.backend.common.ir.cfg
 import org.jetbrains.kotlin.backend.common.descriptors.allParameters
 import org.jetbrains.kotlin.backend.common.descriptors.isSuspend
 import org.jetbrains.kotlin.backend.common.ir.cfg.bitcode.CfgToBitcode
-import org.jetbrains.kotlin.backend.common.ir.cfg.bitcode.emitBitcodeFromCfg
+import org.jetbrains.kotlin.backend.common.ir.cfg.bitcode.createLlvmModule
 import org.jetbrains.kotlin.backend.common.pop
 import org.jetbrains.kotlin.backend.common.push
 import org.jetbrains.kotlin.backend.konan.Context
@@ -11,8 +11,6 @@ import org.jetbrains.kotlin.backend.konan.descriptors.isInterface
 import org.jetbrains.kotlin.backend.konan.descriptors.isIntrinsic
 import org.jetbrains.kotlin.backend.konan.descriptors.isUnit
 import org.jetbrains.kotlin.backend.konan.isValueType
-import org.jetbrains.kotlin.backend.konan.llvm.functionName
-import org.jetbrains.kotlin.backend.konan.llvm.localHash
 import org.jetbrains.kotlin.builtins.KotlinBuiltIns
 import org.jetbrains.kotlin.descriptors.*
 import org.jetbrains.kotlin.ir.IrElement
@@ -76,7 +74,7 @@ internal class CfgSelector(override val context: Context): IrElementVisitorVoid,
         globalInitBlock.inst(Ret())
         context.log { ir.log(); "" }
 
-        emitBitcodeFromCfg(context)
+        createLlvmModule(context)
 
         CfgToBitcode(
                 ir,
@@ -138,6 +136,10 @@ internal class CfgSelector(override val context: Context): IrElementVisitorVoid,
                 is IrExpressionBody -> selectStatement(body.expression)
                 is IrBlockBody -> body.statements.forEach { selectStatement(it) }
                 else -> throw TODO("unsupported function body type: $body")
+            }
+            if (!currentBlock.isLastInstructionTerminal()) {
+                assert(currentFunction.returnType == TypeUnit)
+                currentBlock.inst(Ret())
             }
         }
         variableMap.clear()
