@@ -597,7 +597,8 @@ internal class CfgSelector(override val context: Context): IrElementVisitorVoid,
     //-------------------------------------------------------------------------//
 
     private fun selectWhen(expression: IrWhen): Operand {
-        val resultVar = if (expression.type == context.builtIns.unitType) {
+        val resultVar = if (expression.type == context.builtIns.unitType
+                || expression.type == context.builtIns.nothingType) {
             null
         } else {
             val newVariable = newVariable(expression.type.cfgType)
