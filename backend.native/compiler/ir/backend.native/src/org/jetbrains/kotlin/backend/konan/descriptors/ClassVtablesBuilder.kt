@@ -50,6 +50,17 @@ internal class OverriddenFunctionDescriptor(val descriptor: FunctionDescriptor, 
                 && OverridingUtil.overrides(descriptor.target, overriddenDescriptor)
                 && descriptor.bridgeDirectionsTo(overriddenDescriptor).allNotNeeded()
 
+    fun getImplementation(context: Context): FunctionDescriptor {
+        val target = descriptor.target
+        if (!needBridge) return target
+        val bridgeOwner = if (inheritsBridge) {
+            target // Bridge is inherited from superclass.
+        } else {
+            descriptor
+        }
+        return context.specialDeclarationsFactory.getBridgeDescriptor(OverriddenFunctionDescriptor(bridgeOwner, overriddenDescriptor))
+    }
+
     override fun toString(): String {
         return "(descriptor=$descriptor, overriddenDescriptor=$overriddenDescriptor)"
     }

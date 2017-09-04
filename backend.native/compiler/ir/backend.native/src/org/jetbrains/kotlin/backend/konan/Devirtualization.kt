@@ -25,13 +25,13 @@ import org.jetbrains.kotlin.backend.common.lower.irCast
 import org.jetbrains.kotlin.backend.common.peek
 import org.jetbrains.kotlin.backend.common.pop
 import org.jetbrains.kotlin.backend.common.push
+import org.jetbrains.kotlin.backend.konan.descriptors.isAbstract
+import org.jetbrains.kotlin.backend.konan.descriptors.isInterface
 import org.jetbrains.kotlin.backend.konan.descriptors.target
 import org.jetbrains.kotlin.backend.konan.ir.IrReturnableBlock
 import org.jetbrains.kotlin.backend.konan.ir.IrSuspendableExpression
 import org.jetbrains.kotlin.backend.konan.ir.IrSuspensionPoint
-import org.jetbrains.kotlin.backend.konan.llvm.findMainEntryPoint
-import org.jetbrains.kotlin.backend.konan.llvm.isExported
-import org.jetbrains.kotlin.backend.konan.serialization.symbolName
+import org.jetbrains.kotlin.backend.konan.llvm.*
 import org.jetbrains.kotlin.descriptors.*
 import org.jetbrains.kotlin.incremental.components.NoLookupLocation
 import org.jetbrains.kotlin.ir.IrElement
@@ -48,6 +48,7 @@ import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.resolve.OverridingUtil
 import org.jetbrains.kotlin.resolve.descriptorUtil.fqNameSafe
 import org.jetbrains.kotlin.resolve.descriptorUtil.isSubclassOf
+import org.jetbrains.kotlin.resolve.descriptorUtil.module
 import org.jetbrains.kotlin.resolve.scopes.MemberScope
 import org.jetbrains.kotlin.types.KotlinType
 import org.jetbrains.kotlin.types.typeUtil.*
@@ -112,7 +113,7 @@ internal object Devirtualization {
                                             val suspendableExpressionValues: Map<IrSuspendableExpression, List<IrSuspensionPoint>>) {
 
         fun forEachValue(expression: IrExpression, block: (IrExpression) -> Unit) {
-            if (expression.type.isUnit() || expression.type.isNothing()) return
+            //if (expression.type.isUnit() || expression.type.isNothing()) return
             when (expression) {
                 is IrReturnableBlock -> returnableBlockValues[expression]!!.forEach { forEachValue(it, block) }
 
@@ -158,6 +159,12 @@ internal object Devirtualization {
 
                 is IrGetObjectValue -> block(expression)
 
+                is IrSetField -> {}
+                is IrSetVariable -> {}
+                is IrReturn -> {}
+                is IrBreakContinue -> {}
+                is IrThrow -> {}
+
                 else -> TODO("Unknown expression: ${ir2string(expression)}")
             }
         }
@@ -198,43 +205,240 @@ internal object Devirtualization {
     private val KotlinType.isFinal get() = (constructor.declarationDescriptor as ClassDescriptor).modality == Modality.FINAL
 
     private class FunctionTemplateBody(val nodes: List<Node>, val returns: Node.Proxy) {
-        class Edge(val node: Node, val castToType: KotlinType?)
+        sealed class Type {
+            val superTypes = mutableListOf<Type>()
+            val vtable = mutableListOf<FunctionId>()
+            val itable = mutableMapOf<Long, FunctionId>()
+
+            class External(val name: String): Type() {
+                override fun equals(other: Any?): Boolean {
+                    if (this === other) return true
+                    if (other !is External) return false
+
+                    return name == other.name
+                }
+
+                override fun hashCode(): Int {
+                    return name.hashCode()
+                }
+
+                override fun toString(): String {
+                    return "ExternalType(name='$name')"
+                }
+            }
+
+            class Public(val name: String): Type() {
+                override fun equals(other: Any?): Boolean {
+                    if (this === other) return true
+                    if (other !is Public) return false
+
+                    return name == other.name
+                }
+
+                override fun hashCode(): Int {
+                    return name.hashCode()
+                }
+
+                override fun toString(): String {
+                    return "PublicType(name='$name')"
+                }
+            }
+
+            class Private(val index: Int): Type() {
+                override fun equals(other: Any?): Boolean {
+                    if (this === other) return true
+                    if (other !is Private) return false
+
+                    return index == other.index
+                }
+
+                override fun hashCode(): Int {
+                    return index
+                }
+
+                override fun toString(): String {
+                    return "PrivateType(index=$index)"
+                }
+            }
+        }
+
+        sealed class FunctionId {
+            class External(val name: String): FunctionId() {
+                override fun equals(other: Any?): Boolean {
+                    if (this === other) return true
+                    if (other !is External) return false
+
+                    return name == other.name
+                }
+
+                override fun hashCode(): Int {
+                    return name.hashCode()
+                }
+
+                override fun toString(): String {
+                    return "ExternalFunction(name='$name')"
+                }
+            }
+
+            class Public(val name: String): FunctionId() {
+                override fun equals(other: Any?): Boolean {
+                    if (this === other) return true
+                    if (other !is Public) return false
+
+                    return name == other.name
+                }
+
+                override fun hashCode(): Int {
+                    return name.hashCode()
+                }
+
+                override fun toString(): String {
+                    return "PublicFunction(name='$name')"
+                }
+            }
+
+            class Private(val index: Int): FunctionId() {
+                override fun equals(other: Any?): Boolean {
+                    if (this === other) return true
+                    if (other !is Private) return false
+
+                    return index == other.index
+                }
+
+                override fun hashCode(): Int {
+                    return index
+                }
+
+                override fun toString(): String {
+                    return "PrivateFunction(index=$index)"
+                }
+            }
+        }
+
+        class Edge(val node: Node, val castToType: Type?)
 
         sealed class Node {
             class Parameter(val index: Int): Node()
 
-            class Const(val type: KotlinType): Node()
+            class Const(val type: Type): Node()
 
-            class StaticCall(val callee: FunctionDescriptor, val arguments: List<Edge>): Node()
+            class StaticCall(val callee: FunctionId, val arguments: List<Edge>): Node()
 
-            class VirtualCall(val callee: FunctionDescriptor, val arguments: List<Edge>, val callSite: IrCall?): Node()
+            class VirtualCall(val callee: FunctionId, val receiverType: Type, val calleeVtableIndex: Int,
+                              val arguments: List<Edge>, val callSite: IrCall?): Node()
 
-            class NewObject(val constructor: ConstructorDescriptor, val arguments: List<Edge>): Node()
+            class InterfaceCall(val callee: FunctionId, val receiverType: Type, val calleeHash: Long,
+                                val arguments: List<Edge>, val callSite: IrCall?): Node()
 
-            class Singleton(val type: KotlinType): Node()
+            class NewObject(val constructor: FunctionId, val arguments: List<Edge>): Node()
 
-            class FieldRead(val receiver: Edge?, val field: PropertyDescriptor): Node()
+            class Singleton(val type: Type): Node()
 
-            class FieldWrite(val receiver: Edge?, val field: PropertyDescriptor, val value: Edge): Node()
+            class FieldRead(val receiver: Edge?, val field: String): Node()
 
+            class FieldWrite(val receiver: Edge?, val field: String, val value: Edge): Node()
+
+            // TODO: This is just a temporary variable.
             class Proxy(val values: List<Edge>): Node()
 
             class Variable(val values: MutableList<Edge>): Node()
         }
     }
 
-    private class FunctionTemplate(val numberOfParameters: Int, val body: FunctionTemplateBody) {
+    private class SymbolTable(val context: Context, val irModule: IrModuleFragment) {
+        val typeMap = mutableMapOf<ClassDescriptor, FunctionTemplateBody.Type>()
+        val functionMap = mutableMapOf<CallableDescriptor, FunctionTemplateBody.FunctionId>()
+
+        var privateTypeIndex = 0
+        var privateFunIndex = 0
+
+        init {
+            irModule.accept(object : IrElementVisitorVoid {
+                override fun visitElement(element: IrElement) {
+                    element.acceptChildrenVoid(this)
+                }
+
+                override fun visitFunction(declaration: IrFunction) {
+                    declaration.body?.let { mapFunction(declaration.descriptor) }
+                }
+
+                override fun visitField(declaration: IrField) {
+                    declaration.initializer?.let { mapFunction(declaration.descriptor) }
+                }
+
+                override fun visitClass(declaration: IrClass) {
+                    declaration.acceptChildrenVoid(this)
+
+                    mapClass(declaration.descriptor)
+                }
+            }, data = null)
+        }
+
+        fun mapClass(descriptor: ClassDescriptor): FunctionTemplateBody.Type {
+            if (descriptor.module != irModule.descriptor)
+                return typeMap.getOrPut(descriptor) {
+                    FunctionTemplateBody.Type.External(descriptor.fqNameSafe.asString())
+                }
+            typeMap[descriptor]?.let { return it }
+            val type = if (descriptor.isExported())
+                FunctionTemplateBody.Type.Public(descriptor.fqNameSafe.asString())
+            else
+                FunctionTemplateBody.Type.Private(privateTypeIndex++)
+            if (!descriptor.isInterface) {
+                val vtableBuilder = context.getVtableBuilder(descriptor)
+                type.vtable.addAll(
+                        vtableBuilder.vtableEntries.map { mapFunction(it.getImplementation(context)) }
+                )
+                if (!descriptor.isAbstract()) {
+                    vtableBuilder.methodTableEntries.forEach {
+                        type.itable.put(
+                                it.overriddenDescriptor.functionName.localHash.value,
+                                mapFunction(it.getImplementation(context))
+                        )
+                    }
+                }
+            }
+            typeMap.put(descriptor, type)
+            type.superTypes.addAll(
+                    descriptor.defaultType.immediateSupertypes().map { mapType(it) }
+            )
+            return type
+        }
+
+        fun mapType(type: KotlinType) =
+                mapClass(type.erasure().makeNotNullable().constructor.declarationDescriptor as ClassDescriptor)
+
+        fun mapFunction(descriptor: CallableDescriptor) =
+                functionMap.getOrPut(descriptor) {
+                    if (descriptor.module != irModule.descriptor)
+                        FunctionTemplateBody.FunctionId.External((descriptor as FunctionDescriptor).symbolName)
+                    else {
+                        if (descriptor is FunctionDescriptor && descriptor.isExported())
+                            FunctionTemplateBody.FunctionId.Public(descriptor.symbolName)
+                        else
+                            FunctionTemplateBody.FunctionId.Private(privateFunIndex++)
+                    }
+                }
+    }
+
+    private class FunctionTemplate(val id: FunctionTemplateBody.FunctionId,
+                                   val numberOfParameters: Int,
+                                   val body: FunctionTemplateBody) {
 
         companion object {
-            fun create(descriptor: CallableDescriptor,
+            fun create(context: Context,
+                       descriptor: CallableDescriptor,
                        expressions: List<IrExpression>,
                        variableValues: VariableValues,
                        returnValues: List<IrExpression>,
-                       expressionValuesExtractor: ExpressionValuesExtractor) =
-                    Builder(expressionValuesExtractor, variableValues, descriptor, expressions, returnValues).template
+                       expressionValuesExtractor: ExpressionValuesExtractor,
+                       table: SymbolTable) =
+                    Builder(context, expressionValuesExtractor, variableValues, table, descriptor, expressions, returnValues).template
 
-            private class Builder(val expressionValuesExtractor: ExpressionValuesExtractor,
+            private class Builder(val context: Context,
+                                  val expressionValuesExtractor: ExpressionValuesExtractor,
                                   val variableValues: VariableValues,
+                                  val table: SymbolTable,
                                   val descriptor: CallableDescriptor,
                                   expressions: List<IrExpression>,
                                   returnValues: List<IrExpression>) {
@@ -254,12 +458,13 @@ internal object Devirtualization {
                     }
                     val returns = FunctionTemplateBody.Node.Proxy(returnValues.map { expressionToEdge(it) })
                     val allNodes = (nodes.values + variables.values).distinct().toList()
-                    template = FunctionTemplate(templateParameters.size, FunctionTemplateBody(allNodes, returns))
+                    template = FunctionTemplate(table.mapFunction(descriptor),
+                            templateParameters.size, FunctionTemplateBody(allNodes, returns))
                 }
 
                 private fun expressionToEdge(expression: IrExpression) =
                         if (expression is IrTypeOperatorCall && expression.operator.isCast())
-                            FunctionTemplateBody.Edge(getNode(expression.argument), expression.typeOperand.erasure().makeNotNullable())
+                            FunctionTemplateBody.Edge(getNode(expression.argument), table.mapType(expression.typeOperand))
                         else FunctionTemplateBody.Edge(getNode(expression), null)
 
                 private fun getVariableNode(descriptor: VariableDescriptor): FunctionTemplateBody.Node {
@@ -289,40 +494,60 @@ internal object Devirtualization {
                         }
                         val values = mutableListOf<IrExpression>()
                         expressionValuesExtractor.forEachValue(expression) { values += it }
-                        if (values.size != 1)
+                        if (values.size != 1) {
+                            println("PROXY ${values.size}")
                             FunctionTemplateBody.Node.Proxy(values.map { expressionToEdge(it) })
+                        }
                         else {
                             val value = values[0]
                             if (value != expression) {
+                                println("QXX")
                                 val edge = expressionToEdge(value)
                                 if (edge.castToType == null)
                                     edge.node
                                 else
                                     FunctionTemplateBody.Node.Proxy(listOf(edge))
                             } else {
+                                println("QZZ")
                                 when (value) {
                                     is IrGetValue -> getNode(value)
 
                                     is IrVararg,
-                                    is IrConst<*> -> FunctionTemplateBody.Node.Const(value.type)
+                                    is IrConst<*> -> FunctionTemplateBody.Node.Const(table.mapType(value.type))
 
-                                    is IrGetObjectValue -> FunctionTemplateBody.Node.Singleton(value.type)
+                                    is IrGetObjectValue -> FunctionTemplateBody.Node.Singleton(table.mapType(value.type))
 
                                     is IrCall -> {
                                         val arguments = value.getArguments()
                                         val callee = value.descriptor.target
                                         if (callee is ConstructorDescriptor)
                                             FunctionTemplateBody.Node.NewObject(
-                                                    callee,
+                                                    table.mapFunction(callee),
                                                     arguments.map { expressionToEdge(it.second) }
                                             )
                                         else {
                                             if (callee.isOverridable && value.superQualifier == null) {
-                                                FunctionTemplateBody.Node.VirtualCall(
-                                                        callee,
-                                                        arguments.map { expressionToEdge(it.second) },
-                                                        value
-                                                )
+                                                val owner = callee.containingDeclaration as ClassDescriptor
+                                                val vTableBuilder = context.getVtableBuilder(owner)
+                                                if (owner.isInterface) {
+                                                    FunctionTemplateBody.Node.InterfaceCall(
+                                                            table.mapFunction(callee),
+                                                            table.mapClass(owner),
+                                                            callee.functionName.localHash.value,
+                                                            arguments.map { expressionToEdge(it.second) },
+                                                            value
+                                                    )
+                                                } else {
+                                                    val vtableIndex = vTableBuilder.vtableIndex(callee)
+                                                    assert(vtableIndex >= 0, { "Unable to find function $callee in vTable of $owner" })
+                                                    FunctionTemplateBody.Node.VirtualCall(
+                                                            table.mapFunction(callee),
+                                                            table.mapClass(owner),
+                                                            vtableIndex,
+                                                            arguments.map { expressionToEdge(it.second) },
+                                                            value
+                                                    )
+                                                }
                                             }
                                             else {
                                                 val actualCallee = value.superQualifier.let {
@@ -331,8 +556,9 @@ internal object Devirtualization {
                                                     else
                                                         it.unsubstitutedMemberScope.getOverridingOf(callee)?.target ?: callee
                                                 }
+                                                println("ZZZ")
                                                 FunctionTemplateBody.Node.StaticCall(
-                                                        actualCallee,
+                                                        table.mapFunction(actualCallee),
                                                         arguments.map { expressionToEdge(it.second) }
                                                 )
                                             }
@@ -344,7 +570,7 @@ internal object Devirtualization {
                                                 (descriptor as ConstructorDescriptor).constructedClass.thisAsReceiverParameter)
                                         val arguments = listOf(thiz) + value.getArguments().map { it.second }
                                         FunctionTemplateBody.Node.StaticCall(
-                                                value.descriptor,
+                                                table.mapFunction(value.descriptor),
                                                 arguments.map { expressionToEdge(it) }
                                         )
                                     }
@@ -353,7 +579,7 @@ internal object Devirtualization {
                                         val receiver = value.receiver?.let { expressionToEdge(it) }
                                         FunctionTemplateBody.Node.FieldRead(
                                                 receiver,
-                                                value.descriptor
+                                                value.descriptor.name.asString()
                                         )
                                     }
 
@@ -361,7 +587,7 @@ internal object Devirtualization {
                                         val receiver = value.receiver?.let { expressionToEdge(it) }
                                         FunctionTemplateBody.Node.FieldWrite(
                                                 receiver,
-                                                value.descriptor,
+                                                value.descriptor.name.asString(),
                                                 expressionToEdge(value.value)
                                         )
                                     }
@@ -369,7 +595,7 @@ internal object Devirtualization {
                                     is IrTypeOperatorCall -> {
                                         assert(!value.operator.isCast(), { "Casts should've been handled earlier" })
                                         expressionToEdge(value.argument) // Put argument as a separate vertex.
-                                        FunctionTemplateBody.Node.Const(value.type) // All operators except casts are basically constants.
+                                        FunctionTemplateBody.Node.Const(table.mapType(value.type)) // All operators except casts are basically constants.
                                     }
 
                                     else -> TODO("Unknown expression: ${ir2stringWhole(value)}")
@@ -405,6 +631,21 @@ internal object Devirtualization {
 
                 is FunctionTemplateBody.Node.VirtualCall -> {
                     println("        VIRTUAL CALL ${node.callee}")
+                    println("            RECEIVER: ${node.receiverType}")
+                    println("            VTABLE INDEX: ${node.calleeVtableIndex}")
+                    node.arguments.forEach {
+                        print("            ARG #${ids[it.node]}")
+                        if (it.castToType == null)
+                            println()
+                        else
+                            println(" CASTED TO ${it.castToType}")
+                    }
+                }
+
+                is FunctionTemplateBody.Node.InterfaceCall -> {
+                    println("        VIRTUAL CALL ${node.callee}")
+                    println("            RECEIVER: ${node.receiverType}")
+                    println("            METHOD HASH: ${node.calleeHash}")
                     node.arguments.forEach {
                         print("            ARG #${ids[it.node]}")
                         if (it.castToType == null)
@@ -475,7 +716,7 @@ internal object Devirtualization {
 
     private class IntraproceduralAnalysisResult(val functionTemplates: Map<CallableDescriptor, FunctionTemplate>)
 
-    private class IntraproceduralAnalysis {
+    private class IntraproceduralAnalysis(val context: Context) {
 
         // Possible values of a returnable block.
         private val returnableBlockValues = mutableMapOf<IrReturnableBlock, MutableList<IrExpression>>()
@@ -487,6 +728,7 @@ internal object Devirtualization {
 
         fun analyze(irModule: IrModuleFragment): IntraproceduralAnalysisResult {
             val templates = mutableMapOf<CallableDescriptor, FunctionTemplate>()
+            val symbolTable = SymbolTable(context, irModule)
             irModule.accept(object : IrElementVisitorVoid {
 
                 override fun visitElement(element: IrElement) {
@@ -541,9 +783,9 @@ internal object Devirtualization {
                         }
                     }
 
-                    val functionTemplate = FunctionTemplate.create(descriptor,
+                    val functionTemplate = FunctionTemplate.create(context, descriptor,
                             visitor.expressions, visitor.variableValues,
-                            visitor.returnValues, expressionValuesExtractor)
+                            visitor.returnValues, expressionValuesExtractor, symbolTable)
 
                     if (DEBUG > 1) {
                         println("FUNCTION TEMPLATE")
@@ -553,6 +795,22 @@ internal object Devirtualization {
                     return functionTemplate
                 }
             }, data = null)
+
+            if (DEBUG > 1) {
+                println("SYMBOL TABLE:")
+                symbolTable.typeMap.forEach { descriptor, type ->
+                    println("    DESCRIPTOR: $descriptor")
+                    println("    TYPE: $type")
+                    if (type is FunctionTemplateBody.Type.External)
+                        return@forEach
+                    println("        SUPER TYPES:")
+                    type.superTypes.forEach { println("            $it") }
+                    println("        VTABLE:")
+                    type.vtable.forEach { println("            $it") }
+                    println("        ITABLE:")
+                    type.itable.forEach { println("            ${it.key} -> ${it.value}") }
+                }
+            }
 
             return IntraproceduralAnalysisResult(templates)
         }
@@ -638,498 +896,499 @@ internal object Devirtualization {
         }
     }
 
-    private fun getInstantiatingClasses(functionTemplates: Map<CallableDescriptor, FunctionTemplate>)
-            : Set<ClassDescriptor> {
-        val instantiatingClasses = mutableSetOf<ClassDescriptor>()
-        functionTemplates.values
-                .asSequence()
-                .flatMap { it.body.nodes.asSequence() }
-                .forEach {
-                    if (it is FunctionTemplateBody.Node.NewObject)
-                        instantiatingClasses += it.constructor.constructedClass
-                    else if (it is FunctionTemplateBody.Node.Singleton)
-                        instantiatingClasses += it.type.constructor.declarationDescriptor as ClassDescriptor
-                }
-        return instantiatingClasses
-    }
-
-    private class InterproceduralAnalysis(val context: Context,
-                                          val intraproceduralAnalysisResult: IntraproceduralAnalysisResult) {
-
-        private class ConstraintGraph {
-
-            val nodes = mutableListOf<Node>()
-            val voidNode = Node.Const("Void").also { nodes.add(it) }
-            val functions = mutableMapOf<CallableDescriptor, Function>()
-            val classes = mutableMapOf<ClassDescriptor, Node>()
-            val fields = mutableMapOf<PropertyDescriptor, Node>() // Do not distinguish receivers.
-            val virtualCallSiteReceivers = mutableMapOf<IrCall, Pair<Node, CallableDescriptor>>()
-
-            fun addNode(node: Node) = nodes.add(node)
-
-            class Function(val descriptor: CallableDescriptor, val parameters: Array<Node>, val returns: Node)
-
-            enum class TypeKind {
-                CONCRETE,
-                VIRTUAL
-            }
-
-            data class Type(val type: KotlinType, val kind: TypeKind) {
-                companion object {
-                    fun concrete(type: KotlinType) =
-                            Type(type.erasure().makeNotNullable(), TypeKind.CONCRETE)
-
-                    fun virtual(type: KotlinType) =
-                            Type(type.erasure().makeNotNullable(), if (type.isFinal) TypeKind.CONCRETE else TypeKind.VIRTUAL)
-                }
-            }
-
-            sealed class Node {
-                val types = mutableSetOf<Type>()
-                val edges = mutableListOf<Node>()
-                val reversedEdges = mutableListOf<Node>()
-
-                fun addEdge(node: Node) {
-                    edges += node
-                    node.reversedEdges += this
-                }
-
-                class Const(val name: String) : Node() {
-                    constructor(name: String, type: Type): this(name) {
-                        types += type
-                    }
-
-                    override fun toString(): String {
-                        return "Const(name='$name')"
-                    }
-                }
-
-                // Corresponds to an edge with a cast on it.
-                class Cast(val castToType: KotlinType) : Node() {
-                    override fun toString() = "Cast(castToType=$castToType)"
-                }
-            }
-
-            class MultiNode(val nodes: Set<Node>)
-
-            class Condensation(val topologicalOrder: List<MultiNode>)
-
-            private inner class CondensationBuilder {
-                private val visited = mutableSetOf<Node>()
-                private val order = mutableListOf<Node>()
-                private val nodeToMultiNodeMap = mutableMapOf<Node, MultiNode>()
-                private val multiNodesOrder = mutableListOf<MultiNode>()
-
-                fun build(): Condensation {
-                    // First phase.
-                    nodes.forEach {
-                        if (!visited.contains(it))
-                            findOrder(it)
-                    }
-
-                    // Second phase.
-                    visited.clear()
-                    val multiNodes = mutableListOf<MultiNode>()
-                    order.reversed().forEach {
-                        if (!visited.contains(it)) {
-                            val nodes = mutableSetOf<Node>()
-                            paint(it, nodes)
-                            multiNodes += MultiNode(nodes)
-                        }
-                    }
-
-                    // Topsort of built condensation.
-                    multiNodes.forEach { multiNode ->
-                        multiNode.nodes.forEach { nodeToMultiNodeMap.put(it, multiNode) }
-                    }
-                    visited.clear()
-                    multiNodes.forEach {
-                        if (!visited.contains(it.nodes.first()))
-                            findMultiNodesOrder(it)
-                    }
-
-                    return Condensation(multiNodesOrder)
-                }
-
-                private fun findOrder(node: Node) {
-                    visited += node
-                    node.edges.forEach {
-                        if (!visited.contains(it))
-                            findOrder(it)
-                    }
-                    order += node
-                }
-
-                private fun paint(node: Node, multiNode: MutableSet<Node>) {
-                    visited += node
-                    multiNode += node
-                    node.reversedEdges.forEach {
-                        if (!visited.contains(it))
-                            paint(it, multiNode)
-                    }
-                }
-
-                private fun findMultiNodesOrder(node: MultiNode) {
-                    visited.addAll(node.nodes)
-                    node.nodes.forEach {
-                        it.edges.forEach {
-                            if (!visited.contains(it))
-                                findMultiNodesOrder(nodeToMultiNodeMap[it]!!)
-                        }
-                    }
-                    multiNodesOrder += node
-                }
-            }
-
-            fun buildCondensation() = CondensationBuilder().build()
-        }
-
-        private val constraintGraph = ConstraintGraph()
-
-        fun analyze(irModule: IrModuleFragment): Map<IrCall, DevirtualizedCallSite> {
-            // Rapid Type Analysis: find all instantiations and conservatively estimate call graph.
-            val functionTemplates = intraproceduralAnalysisResult.functionTemplates
-            val instantiatingClasses = getInstantiatingClasses(functionTemplates)
-
-            val nodesMap = mutableMapOf<FunctionTemplateBody.Node, ConstraintGraph.Node>()
-            val variables = mutableMapOf<FunctionTemplateBody.Node.Variable, ConstraintGraph.Node>()
-            functionTemplates.keys.forEach {
-                buildFunctionConstraintGraph(it, nodesMap, variables, instantiatingClasses)
-            }
-            val rootSet = getRootSet(irModule)
-            rootSet.filterIsInstance<FunctionDescriptor>()
-                    .forEach {
-                        if (constraintGraph.functions[it] == null)
-                            println("BUGBUGBUG: $it")
-                        val function = constraintGraph.functions[it]!!
-                        it.allParameters.withIndex().forEach {
-                            val parameterType = it.value.type.erasure().makeNotNullable()
-                            val parameterClassDescriptor = parameterType.constructor.declarationDescriptor as ClassDescriptor
-                            val node = constraintGraph.classes.getOrPut(parameterClassDescriptor) {
-                                ConstraintGraph.Node.Const("Root", ConstraintGraph.Type.virtual(parameterType)).also {
-                                    constraintGraph.addNode(it)
-                                }
-                            }
-                            node.addEdge(function.parameters[it.index])
-                        }
-                    }
-            if (DEBUG > 0) {
-                println("CONSTRAINT GRAPH")
-                val ids = constraintGraph.nodes.withIndex().associateBy({ it.value }, { it.index })
-                constraintGraph.nodes.forEach {
-                    println("    NODE #${ids[it]}: $it")
-                    it.edges.forEach {
-                        println("        EDGE: #${ids[it]}")
-                    }
-                    it.types.forEach { println("        TYPE: $it") }
-                }
-            }
-            val condensation = constraintGraph.buildCondensation()
-            if (DEBUG > 0) {
-                println("CONDENSATION")
-                val ids = constraintGraph.nodes.withIndex().associateBy({ it.value }, { it.index })
-                condensation.topologicalOrder.reversed().forEachIndexed { index, multiNode ->
-                    println("    MULTI-NODE #$index")
-                    multiNode.nodes.forEach {
-                        println("        #${ids[it]}: $it")
-                    }
-                }
-            }
-            condensation.topologicalOrder.reversed().forEachIndexed { index, multiNode ->
-                val types = mutableSetOf<ConstraintGraph.Type>()
-                val badTypes = mutableSetOf<ConstraintGraph.Type>()
-                multiNode.nodes.forEach { types.addAll(it.types) }
-                multiNode.nodes
-                        .filterIsInstance<ConstraintGraph.Node.Cast>()
-                        .forEach {
-                            val castToType = it.castToType
-                            var wasVirtualType = false
-                            types.forEach {
-                                if (!it.type.isSubtypeOf(castToType)) {
-                                    badTypes += it
-                                    if (it.kind == ConstraintGraph.TypeKind.VIRTUAL)
-                                        wasVirtualType = true
-                                }
-                            }
-                            if (wasVirtualType)
-                                types += ConstraintGraph.Type.virtual(castToType)
-                        }
-                types -= badTypes
-                if (DEBUG > 0) {
-                    println("Types of multi-node #$index")
-                    types.forEach { println("    $it") }
-                }
-                multiNode.nodes.forEach {
-                    it.types.clear()
-                    it.types += types
-                    it.edges.forEach {
-                        it.types += types
-                    }
-                }
-            }
-            val result = mutableMapOf<IrCall, Pair<DevirtualizedCallSite, CallableDescriptor>>()
-            functionTemplates.values
-                    .asSequence()
-                    .flatMap { it.body.nodes.asSequence() }
-                    .filterIsInstance<FunctionTemplateBody.Node.VirtualCall>()
-                    .forEach {
-                        val node = nodesMap[it]!!
-                        if (it.callSite == null || node.types.isEmpty() || node.types.any { it.kind == ConstraintGraph.TypeKind.VIRTUAL })
-                            return@forEach
-                        val receiver = constraintGraph.virtualCallSiteReceivers[it.callSite]
-                        if (receiver != null) {
-                            val possibleReceivers = receiver.first.types
-                                    .filterNot { it.type.isNothing() }
-                                    .map { it.type.constructor.declarationDescriptor as ClassDescriptor }
-                            result.put(it.callSite, DevirtualizedCallSite(possibleReceivers) to receiver.second)
-                        }
-                    }
-            if (DEBUG > 0) {
-                result.forEach { callSite, devirtualizedCallSite ->
-                    if (devirtualizedCallSite.first.possibleReceivers.isNotEmpty()) {
-                        println("FUNCTION: ${devirtualizedCallSite.second}")
-                        println("CALL SITE: ${ir2stringWhole(callSite)}")
-                        println("POSSIBLE RECEIVERS:")
-                        devirtualizedCallSite.first.possibleReceivers.forEach { println("    $it") }
-                        println()
-                    }
-                }
-            }
-            return result.asSequence().associateBy({ it.key }, { it.value.first })
-        }
-
-        private fun getRootSet(irModule: IrModuleFragment): Set<CallableDescriptor> {
-            val rootSet = mutableSetOf<CallableDescriptor>()
-            val hasMain = context.config.configuration.get(KonanConfigKeys.PRODUCE) == CompilerOutputKind.PROGRAM
-            if (hasMain)
-                rootSet.add(findMainEntryPoint(context)!!)
-            irModule.accept(object: IrElementVisitorVoid {
-                override fun visitElement(element: IrElement) {
-                    element.acceptChildrenVoid(this)
-                }
-
-                override fun visitField(declaration: IrField) {
-                    declaration.initializer?.let {
-                        // Global field.
-                        rootSet += declaration.descriptor
-                    }
-                }
-
-                override fun visitFunction(declaration: IrFunction) {
-                    if (!hasMain && declaration.descriptor.isExported() && declaration.descriptor.modality != Modality.ABSTRACT
-                            && !declaration.descriptor.isExternal && declaration.descriptor.kind != CallableMemberDescriptor.Kind.FAKE_OVERRIDE)
-                        // For a library take all visible functions.
-                        rootSet += declaration.descriptor
-                }
-            }, data = null)
-            return rootSet
-        }
-
-        private fun buildFunctionConstraintGraph(descriptor: CallableDescriptor,
-                                                 nodes: MutableMap<FunctionTemplateBody.Node, ConstraintGraph.Node>,
-                                                 variables: MutableMap<FunctionTemplateBody.Node.Variable, ConstraintGraph.Node>,
-                                                 instantiatingClasses: Collection<ClassDescriptor>): ConstraintGraph.Function {
-            constraintGraph.functions[descriptor]?.let { return it }
-
-            val template = intraproceduralAnalysisResult.functionTemplates[descriptor] ?: createEmptyTemplate(descriptor)
-            val body = template.body
-            val parameters = Array<ConstraintGraph.Node>(template.numberOfParameters) {
-                ConstraintGraph.Node.Const("Param#$it\$$descriptor").also {
-                    constraintGraph.addNode(it)
-                }
-            }
-            val returnsNode = ConstraintGraph.Node.Const("Returns\$$descriptor").also {
-                constraintGraph.addNode(it)
-            }
-            val function = ConstraintGraph.Function(descriptor, parameters, returnsNode)
-            constraintGraph.functions[descriptor] = function
-            body.nodes.forEach { templateNodeToConstraintNode(function, it, nodes, variables, instantiatingClasses) }
-            body.returns.values.forEach {
-                edgeToConstraintNode(function, it, nodes, variables, instantiatingClasses).addEdge(returnsNode)
-            }
-            return function
-        }
-
-        private fun createEmptyTemplate(descriptor: CallableDescriptor): FunctionTemplate {
-            val expressionValuesExtractor = ExpressionValuesExtractor(emptyMap(), emptyMap())
-            return FunctionTemplate.create(descriptor, emptyList(), VariableValues(), emptyList(), expressionValuesExtractor)
-        }
-
-        private fun edgeToConstraintNode(function: ConstraintGraph.Function,
-                                         edge: FunctionTemplateBody.Edge,
-                                         functionNodesMap: MutableMap<FunctionTemplateBody.Node, ConstraintGraph.Node>,
-                                         variables: MutableMap<FunctionTemplateBody.Node.Variable, ConstraintGraph.Node>,
-                                         instantiatingClasses: Collection<ClassDescriptor>): ConstraintGraph.Node {
-            val result = templateNodeToConstraintNode(function, edge.node, functionNodesMap, variables, instantiatingClasses)
-            return edge.castToType?.let {
-                val castNode = ConstraintGraph.Node.Cast(it)
-                constraintGraph.addNode(castNode)
-                result.addEdge(castNode)
-                castNode
-            } ?: result
-        }
-
-        /**
-         * Takes a function template's node and creates a constraint graph node corresponding to it.
-         * Also creates all necessary edges.
-         */
-        private fun templateNodeToConstraintNode(function: ConstraintGraph.Function,
-                                                 node: FunctionTemplateBody.Node,
-                                                 functionNodesMap: MutableMap<FunctionTemplateBody.Node, ConstraintGraph.Node>,
-                                                 variables: MutableMap<FunctionTemplateBody.Node.Variable, ConstraintGraph.Node>,
-                                                 instantiatingClasses: Collection<ClassDescriptor>)
-                : ConstraintGraph.Node {
-
-            fun edgeToConstraintNode(edge: FunctionTemplateBody.Edge): ConstraintGraph.Node =
-                    edgeToConstraintNode(function, edge, functionNodesMap, variables, instantiatingClasses)
-
-            fun doCall(callee: ConstraintGraph.Function, arguments: List<Any>): ConstraintGraph.Node {
-                assert(callee.parameters.size == arguments.size, { "" })
-                callee.parameters.forEachIndexed { index, parameter ->
-                    val argument = arguments[index].let {
-                        when (it) {
-                            is ConstraintGraph.Node -> it
-                            is FunctionTemplateBody.Edge -> edgeToConstraintNode(it)
-                            else -> error("Unexpected argument: $it")
-                        }
-                    }
-                    argument.addEdge(parameter)
-                }
-                return callee.returns
-            }
-
-            if (node is FunctionTemplateBody.Node.Variable) {
-                var variableNode = variables[node]
-                if (variableNode == null) {
-                    variableNode = ConstraintGraph.Node.Const("Variable\$${function.descriptor}").also {
-                        constraintGraph.addNode(it)
-                    }
-                    variables[node] = variableNode
-                    for (value in node.values) {
-                        edgeToConstraintNode(value).addEdge(variableNode)
-                    }
-                }
-                return variableNode
-            }
-
-            return functionNodesMap.getOrPut(node) {
-                when (node) {
-                    is FunctionTemplateBody.Node.Const ->
-                        ConstraintGraph.Node.Const("Const\$${function.descriptor}", ConstraintGraph.Type.concrete(node.type)).also {
-                            constraintGraph.addNode(it)
-                        }
-
-                    is FunctionTemplateBody.Node.Parameter ->
-                        function.parameters[node.index]
-
-                    is FunctionTemplateBody.Node.StaticCall ->
-                        doCall(buildFunctionConstraintGraph(node.callee, functionNodesMap, variables, instantiatingClasses), node.arguments)
-
-                    is FunctionTemplateBody.Node.VirtualCall -> {
-                        val callee = node.callee
-                        val (receiverType, callees) = run {
-                                val descriptor = callee
-                                val receiverType = descriptor.dispatchReceiverParameter!!.type.erasure()
-                                val receiver = receiverType.constructor.declarationDescriptor as ClassDescriptor
-                                // TODO: optimize by building type hierarchy.
-                                val callees = instantiatingClasses
-                                        .filter { it.isSubclassOf(receiver) }
-                                        .map { it.unsubstitutedMemberScope.getOverridingOf(descriptor) ?: descriptor }
-                                        .distinct()
-                                receiverType to callees
-                        }
-                        if (DEBUG > 0) {
-                            println("Virtual call")
-                            println("Caller: ${function.descriptor}")
-                            println("Callee: $callee")
-                            println("Possible callees:")
-                            callees.forEach { println("$it") }
-                            println()
-                        }
-                        if (callees.isEmpty())
-                            constraintGraph.voidNode
-                        else {
-                            val calleeConstraintGraphs = callees.map {
-                                buildFunctionConstraintGraph(it, functionNodesMap, variables, instantiatingClasses)
-                            }
-                            val receiverNode = edgeToConstraintNode(node.arguments[0])
-                            val castedReceiver = ConstraintGraph.Node.Cast(receiverType).also {
-                                constraintGraph.addNode(it)
-                            }
-                            receiverNode.edges += castedReceiver
-                            val result = if (calleeConstraintGraphs.size == 1) {
-                                doCall(calleeConstraintGraphs[0], listOf(castedReceiver) + node.arguments.drop(1))
-                            } else {
-                                val returns = ConstraintGraph.Node.Const("VirtualCallReturns\$${function.descriptor}").also {
-                                    constraintGraph.addNode(it)
-                                }
-                                calleeConstraintGraphs.forEach { doCall(it, listOf(castedReceiver) + node.arguments.drop(1)).addEdge(returns) }
-                                returns
-                            }
-                            node.callSite?.let { constraintGraph.virtualCallSiteReceivers[it] = castedReceiver to function.descriptor }
-                            result
-                        }
-                    }
-
-                    is FunctionTemplateBody.Node.NewObject -> {
-                        val instanceNode = constraintGraph.classes.getOrPut(node.constructor.constructedClass) {
-                            val instanceType = ConstraintGraph.Type.concrete(node.constructor.constructedClass.defaultType)
-                            ConstraintGraph.Node.Const("Instance\$${function.descriptor}", instanceType).also {
-                                constraintGraph.addNode(it)
-                            }
-                        }
-                        val constructorNode = buildFunctionConstraintGraph(node.constructor, functionNodesMap, variables, instantiatingClasses)
-                        doCall(constructorNode, listOf(instanceNode) + node.arguments)
-                        instanceNode
-                    }
-
-                    is FunctionTemplateBody.Node.Singleton ->
-                        constraintGraph.classes.getOrPut(node.type.constructor.declarationDescriptor as ClassDescriptor) {
-                            ConstraintGraph.Node.Const("Singleton\$${function.descriptor}", ConstraintGraph.Type.concrete(node.type)).also {
-                                constraintGraph.addNode(it)
-                            }
-                        }
-
-                    is FunctionTemplateBody.Node.FieldRead ->
-                        constraintGraph.fields.getOrPut(node.field) {
-                            ConstraintGraph.Node.Const("FieldRead\$${function.descriptor}").also {
-                                constraintGraph.addNode(it)
-                            }
-                        }
-
-                    is FunctionTemplateBody.Node.FieldWrite -> {
-                        val fieldNode = constraintGraph.fields.getOrPut(node.field) {
-                            ConstraintGraph.Node.Const("FieldWrite\$${function.descriptor}").also {
-                                constraintGraph.addNode(it)
-                            }
-                        }
-                        edgeToConstraintNode(node.value).addEdge(fieldNode)
-                        constraintGraph.voidNode
-                    }
-
-                    is FunctionTemplateBody.Node.Proxy ->
-                        node.values.map { edgeToConstraintNode(it) }.let { values ->
-                            ConstraintGraph.Node.Const("Proxy\$${function.descriptor}").also { node ->
-                                constraintGraph.addNode(node)
-                                values.forEach { it.addEdge(node) }
-                            }
-                        }
-
-                    is FunctionTemplateBody.Node.Variable ->
-                        error("Variables should've been handled earlier")
-                }
-            }
-        }
-    }
+//    private fun getInstantiatingClasses(functionTemplates: Map<CallableDescriptor, FunctionTemplate>)
+//            : Set<ClassDescriptor> {
+//        val instantiatingClasses = mutableSetOf<ClassDescriptor>()
+//        functionTemplates.values
+//                .asSequence()
+//                .flatMap { it.body.nodes.asSequence() }
+//                .forEach {
+//                    if (it is FunctionTemplateBody.Node.NewObject)
+//                        instantiatingClasses += it.constructor.constructedClass
+//                    else if (it is FunctionTemplateBody.Node.Singleton)
+//                        instantiatingClasses += it.type.constructor.declarationDescriptor as ClassDescriptor
+//                }
+//        return instantiatingClasses
+//    }
+//
+//    private class InterproceduralAnalysis(val context: Context,
+//                                          val intraproceduralAnalysisResult: IntraproceduralAnalysisResult) {
+//
+//        private class ConstraintGraph {
+//
+//            val nodes = mutableListOf<Node>()
+//            val voidNode = Node.Const("Void").also { nodes.add(it) }
+//            val functions = mutableMapOf<CallableDescriptor, Function>()
+//            val classes = mutableMapOf<ClassDescriptor, Node>()
+//            val fields = mutableMapOf<PropertyDescriptor, Node>() // Do not distinguish receivers.
+//            val virtualCallSiteReceivers = mutableMapOf<IrCall, Pair<Node, CallableDescriptor>>()
+//
+//            fun addNode(node: Node) = nodes.add(node)
+//
+//            class Function(val descriptor: CallableDescriptor, val parameters: Array<Node>, val returns: Node)
+//
+//            enum class TypeKind {
+//                CONCRETE,
+//                VIRTUAL
+//            }
+//
+//            data class Type(val type: KotlinType, val kind: TypeKind) {
+//                companion object {
+//                    fun concrete(type: KotlinType) =
+//                            Type(type.erasure().makeNotNullable(), TypeKind.CONCRETE)
+//
+//                    fun virtual(type: KotlinType) =
+//                            Type(type.erasure().makeNotNullable(), if (type.isFinal) TypeKind.CONCRETE else TypeKind.VIRTUAL)
+//                }
+//            }
+//
+//            sealed class Node {
+//                val types = mutableSetOf<Type>()
+//                val edges = mutableListOf<Node>()
+//                val reversedEdges = mutableListOf<Node>()
+//
+//                fun addEdge(node: Node) {
+//                    edges += node
+//                    node.reversedEdges += this
+//                }
+//
+//                class Const(val name: String) : Node() {
+//                    constructor(name: String, type: Type): this(name) {
+//                        types += type
+//                    }
+//
+//                    override fun toString(): String {
+//                        return "Const(name='$name')"
+//                    }
+//                }
+//
+//                // Corresponds to an edge with a cast on it.
+//                class Cast(val castToType: KotlinType) : Node() {
+//                    override fun toString() = "Cast(castToType=$castToType)"
+//                }
+//            }
+//
+//            class MultiNode(val nodes: Set<Node>)
+//
+//            class Condensation(val topologicalOrder: List<MultiNode>)
+//
+//            private inner class CondensationBuilder {
+//                private val visited = mutableSetOf<Node>()
+//                private val order = mutableListOf<Node>()
+//                private val nodeToMultiNodeMap = mutableMapOf<Node, MultiNode>()
+//                private val multiNodesOrder = mutableListOf<MultiNode>()
+//
+//                fun build(): Condensation {
+//                    // First phase.
+//                    nodes.forEach {
+//                        if (!visited.contains(it))
+//                            findOrder(it)
+//                    }
+//
+//                    // Second phase.
+//                    visited.clear()
+//                    val multiNodes = mutableListOf<MultiNode>()
+//                    order.reversed().forEach {
+//                        if (!visited.contains(it)) {
+//                            val nodes = mutableSetOf<Node>()
+//                            paint(it, nodes)
+//                            multiNodes += MultiNode(nodes)
+//                        }
+//                    }
+//
+//                    // Topsort of built condensation.
+//                    multiNodes.forEach { multiNode ->
+//                        multiNode.nodes.forEach { nodeToMultiNodeMap.put(it, multiNode) }
+//                    }
+//                    visited.clear()
+//                    multiNodes.forEach {
+//                        if (!visited.contains(it.nodes.first()))
+//                            findMultiNodesOrder(it)
+//                    }
+//
+//                    return Condensation(multiNodesOrder)
+//                }
+//
+//                private fun findOrder(node: Node) {
+//                    visited += node
+//                    node.edges.forEach {
+//                        if (!visited.contains(it))
+//                            findOrder(it)
+//                    }
+//                    order += node
+//                }
+//
+//                private fun paint(node: Node, multiNode: MutableSet<Node>) {
+//                    visited += node
+//                    multiNode += node
+//                    node.reversedEdges.forEach {
+//                        if (!visited.contains(it))
+//                            paint(it, multiNode)
+//                    }
+//                }
+//
+//                private fun findMultiNodesOrder(node: MultiNode) {
+//                    visited.addAll(node.nodes)
+//                    node.nodes.forEach {
+//                        it.edges.forEach {
+//                            if (!visited.contains(it))
+//                                findMultiNodesOrder(nodeToMultiNodeMap[it]!!)
+//                        }
+//                    }
+//                    multiNodesOrder += node
+//                }
+//            }
+//
+//            fun buildCondensation() = CondensationBuilder().build()
+//        }
+//
+//        private val constraintGraph = ConstraintGraph()
+//
+//        fun analyze(irModule: IrModuleFragment): Map<IrCall, DevirtualizedCallSite> {
+//            // Rapid Type Analysis: find all instantiations and conservatively estimate call graph.
+//            val functionTemplates = intraproceduralAnalysisResult.functionTemplates
+//            val instantiatingClasses = getInstantiatingClasses(functionTemplates)
+//
+//            val nodesMap = mutableMapOf<FunctionTemplateBody.Node, ConstraintGraph.Node>()
+//            val variables = mutableMapOf<FunctionTemplateBody.Node.Variable, ConstraintGraph.Node>()
+//            functionTemplates.keys.forEach {
+//                buildFunctionConstraintGraph(it, nodesMap, variables, instantiatingClasses)
+//            }
+//            val rootSet = getRootSet(irModule)
+//            rootSet.filterIsInstance<FunctionDescriptor>()
+//                    .forEach {
+//                        if (constraintGraph.functions[it] == null)
+//                            println("BUGBUGBUG: $it")
+//                        val function = constraintGraph.functions[it]!!
+//                        it.allParameters.withIndex().forEach {
+//                            val parameterType = it.value.type.erasure().makeNotNullable()
+//                            val parameterClassDescriptor = parameterType.constructor.declarationDescriptor as ClassDescriptor
+//                            val node = constraintGraph.classes.getOrPut(parameterClassDescriptor) {
+//                                ConstraintGraph.Node.Const("Root", ConstraintGraph.Type.virtual(parameterType)).also {
+//                                    constraintGraph.addNode(it)
+//                                }
+//                            }
+//                            node.addEdge(function.parameters[it.index])
+//                        }
+//                    }
+//            if (DEBUG > 0) {
+//                println("CONSTRAINT GRAPH")
+//                val ids = constraintGraph.nodes.withIndex().associateBy({ it.value }, { it.index })
+//                constraintGraph.nodes.forEach {
+//                    println("    NODE #${ids[it]}: $it")
+//                    it.edges.forEach {
+//                        println("        EDGE: #${ids[it]}")
+//                    }
+//                    it.types.forEach { println("        TYPE: $it") }
+//                }
+//            }
+//            val condensation = constraintGraph.buildCondensation()
+//            if (DEBUG > 0) {
+//                println("CONDENSATION")
+//                val ids = constraintGraph.nodes.withIndex().associateBy({ it.value }, { it.index })
+//                condensation.topologicalOrder.reversed().forEachIndexed { index, multiNode ->
+//                    println("    MULTI-NODE #$index")
+//                    multiNode.nodes.forEach {
+//                        println("        #${ids[it]}: $it")
+//                    }
+//                }
+//            }
+//            condensation.topologicalOrder.reversed().forEachIndexed { index, multiNode ->
+//                val types = mutableSetOf<ConstraintGraph.Type>()
+//                val badTypes = mutableSetOf<ConstraintGraph.Type>()
+//                multiNode.nodes.forEach { types.addAll(it.types) }
+//                multiNode.nodes
+//                        .filterIsInstance<ConstraintGraph.Node.Cast>()
+//                        .forEach {
+//                            val castToType = it.castToType
+//                            var wasVirtualType = false
+//                            types.forEach {
+//                                if (!it.type.isSubtypeOf(castToType)) {
+//                                    badTypes += it
+//                                    if (it.kind == ConstraintGraph.TypeKind.VIRTUAL)
+//                                        wasVirtualType = true
+//                                }
+//                            }
+//                            if (wasVirtualType)
+//                                types += ConstraintGraph.Type.virtual(castToType)
+//                        }
+//                types -= badTypes
+//                if (DEBUG > 0) {
+//                    println("Types of multi-node #$index")
+//                    types.forEach { println("    $it") }
+//                }
+//                multiNode.nodes.forEach {
+//                    it.types.clear()
+//                    it.types += types
+//                    it.edges.forEach {
+//                        it.types += types
+//                    }
+//                }
+//            }
+//            val result = mutableMapOf<IrCall, Pair<DevirtualizedCallSite, CallableDescriptor>>()
+//            functionTemplates.values
+//                    .asSequence()
+//                    .flatMap { it.body.nodes.asSequence() }
+//                    .filterIsInstance<FunctionTemplateBody.Node.VirtualCall>()
+//                    .forEach {
+//                        val node = nodesMap[it]!!
+//                        if (it.callSite == null || node.types.isEmpty() || node.types.any { it.kind == ConstraintGraph.TypeKind.VIRTUAL })
+//                            return@forEach
+//                        val receiver = constraintGraph.virtualCallSiteReceivers[it.callSite]
+//                        if (receiver != null) {
+//                            val possibleReceivers = receiver.first.types
+//                                    .filterNot { it.type.isNothing() }
+//                                    .map { it.type.constructor.declarationDescriptor as ClassDescriptor }
+//                            result.put(it.callSite, DevirtualizedCallSite(possibleReceivers) to receiver.second)
+//                        }
+//                    }
+//            if (DEBUG > 0) {
+//                result.forEach { callSite, devirtualizedCallSite ->
+//                    if (devirtualizedCallSite.first.possibleReceivers.isNotEmpty()) {
+//                        println("FUNCTION: ${devirtualizedCallSite.second}")
+//                        println("CALL SITE: ${ir2stringWhole(callSite)}")
+//                        println("POSSIBLE RECEIVERS:")
+//                        devirtualizedCallSite.first.possibleReceivers.forEach { println("    $it") }
+//                        println()
+//                    }
+//                }
+//            }
+//            return result.asSequence().associateBy({ it.key }, { it.value.first })
+//        }
+//
+//        private fun getRootSet(irModule: IrModuleFragment): Set<CallableDescriptor> {
+//            val rootSet = mutableSetOf<CallableDescriptor>()
+//            val hasMain = context.config.configuration.get(KonanConfigKeys.PRODUCE) == CompilerOutputKind.PROGRAM
+//            if (hasMain)
+//                rootSet.add(findMainEntryPoint(context)!!)
+//            irModule.accept(object: IrElementVisitorVoid {
+//                override fun visitElement(element: IrElement) {
+//                    element.acceptChildrenVoid(this)
+//                }
+//
+//                override fun visitField(declaration: IrField) {
+//                    declaration.initializer?.let {
+//                        // Global field.
+//                        rootSet += declaration.descriptor
+//                    }
+//                }
+//
+//                override fun visitFunction(declaration: IrFunction) {
+//                    if (!hasMain && declaration.descriptor.isExported() && declaration.descriptor.modality != Modality.ABSTRACT
+//                            && !declaration.descriptor.isExternal && declaration.descriptor.kind != CallableMemberDescriptor.Kind.FAKE_OVERRIDE)
+//                        // For a library take all visible functions.
+//                        rootSet += declaration.descriptor
+//                }
+//            }, data = null)
+//            return rootSet
+//        }
+//
+//        private fun buildFunctionConstraintGraph(descriptor: CallableDescriptor,
+//                                                 nodes: MutableMap<FunctionTemplateBody.Node, ConstraintGraph.Node>,
+//                                                 variables: MutableMap<FunctionTemplateBody.Node.Variable, ConstraintGraph.Node>,
+//                                                 instantiatingClasses: Collection<ClassDescriptor>): ConstraintGraph.Function {
+//            constraintGraph.functions[descriptor]?.let { return it }
+//
+//            val template = intraproceduralAnalysisResult.functionTemplates[descriptor] ?: createEmptyTemplate(descriptor)
+//            val body = template.body
+//            val parameters = Array<ConstraintGraph.Node>(template.numberOfParameters) {
+//                ConstraintGraph.Node.Const("Param#$it\$$descriptor").also {
+//                    constraintGraph.addNode(it)
+//                }
+//            }
+//            val returnsNode = ConstraintGraph.Node.Const("Returns\$$descriptor").also {
+//                constraintGraph.addNode(it)
+//            }
+//            val function = ConstraintGraph.Function(descriptor, parameters, returnsNode)
+//            constraintGraph.functions[descriptor] = function
+//            body.nodes.forEach { templateNodeToConstraintNode(function, it, nodes, variables, instantiatingClasses) }
+//            body.returns.values.forEach {
+//                edgeToConstraintNode(function, it, nodes, variables, instantiatingClasses).addEdge(returnsNode)
+//            }
+//            return function
+//        }
+//
+//        private fun createEmptyTemplate(descriptor: CallableDescriptor): FunctionTemplate {
+//            val expressionValuesExtractor = ExpressionValuesExtractor(emptyMap(), emptyMap())
+//            return FunctionTemplate.create(descriptor, emptyList(), VariableValues(), emptyList(), expressionValuesExtractor)
+//        }
+//
+//        private fun edgeToConstraintNode(function: ConstraintGraph.Function,
+//                                         edge: FunctionTemplateBody.Edge,
+//                                         functionNodesMap: MutableMap<FunctionTemplateBody.Node, ConstraintGraph.Node>,
+//                                         variables: MutableMap<FunctionTemplateBody.Node.Variable, ConstraintGraph.Node>,
+//                                         instantiatingClasses: Collection<ClassDescriptor>): ConstraintGraph.Node {
+//            val result = templateNodeToConstraintNode(function, edge.node, functionNodesMap, variables, instantiatingClasses)
+//            return edge.castToType?.let {
+//                val castNode = ConstraintGraph.Node.Cast(it)
+//                constraintGraph.addNode(castNode)
+//                result.addEdge(castNode)
+//                castNode
+//            } ?: result
+//        }
+//
+//        /**
+//         * Takes a function template's node and creates a constraint graph node corresponding to it.
+//         * Also creates all necessary edges.
+//         */
+//        private fun templateNodeToConstraintNode(function: ConstraintGraph.Function,
+//                                                 node: FunctionTemplateBody.Node,
+//                                                 functionNodesMap: MutableMap<FunctionTemplateBody.Node, ConstraintGraph.Node>,
+//                                                 variables: MutableMap<FunctionTemplateBody.Node.Variable, ConstraintGraph.Node>,
+//                                                 instantiatingClasses: Collection<ClassDescriptor>)
+//                : ConstraintGraph.Node {
+//
+//            fun edgeToConstraintNode(edge: FunctionTemplateBody.Edge): ConstraintGraph.Node =
+//                    edgeToConstraintNode(function, edge, functionNodesMap, variables, instantiatingClasses)
+//
+//            fun doCall(callee: ConstraintGraph.Function, arguments: List<Any>): ConstraintGraph.Node {
+//                assert(callee.parameters.size == arguments.size, { "" })
+//                callee.parameters.forEachIndexed { index, parameter ->
+//                    val argument = arguments[index].let {
+//                        when (it) {
+//                            is ConstraintGraph.Node -> it
+//                            is FunctionTemplateBody.Edge -> edgeToConstraintNode(it)
+//                            else -> error("Unexpected argument: $it")
+//                        }
+//                    }
+//                    argument.addEdge(parameter)
+//                }
+//                return callee.returns
+//            }
+//
+//            if (node is FunctionTemplateBody.Node.Variable) {
+//                var variableNode = variables[node]
+//                if (variableNode == null) {
+//                    variableNode = ConstraintGraph.Node.Const("Variable\$${function.descriptor}").also {
+//                        constraintGraph.addNode(it)
+//                    }
+//                    variables[node] = variableNode
+//                    for (value in node.values) {
+//                        edgeToConstraintNode(value).addEdge(variableNode)
+//                    }
+//                }
+//                return variableNode
+//            }
+//
+//            return functionNodesMap.getOrPut(node) {
+//                when (node) {
+//                    is FunctionTemplateBody.Node.Const ->
+//                        ConstraintGraph.Node.Const("Const\$${function.descriptor}", ConstraintGraph.Type.concrete(node.type)).also {
+//                            constraintGraph.addNode(it)
+//                        }
+//
+//                    is FunctionTemplateBody.Node.Parameter ->
+//                        function.parameters[node.index]
+//
+//                    is FunctionTemplateBody.Node.StaticCall ->
+//                        doCall(buildFunctionConstraintGraph(node.callee, functionNodesMap, variables, instantiatingClasses), node.arguments)
+//
+//                    is FunctionTemplateBody.Node.VirtualCall -> {
+//                        val callee = node.callee
+//                        val (receiverType, callees) = run {
+//                                val descriptor = callee
+//                                val receiverType = descriptor.dispatchReceiverParameter!!.type.erasure()
+//                                val receiver = receiverType.constructor.declarationDescriptor as ClassDescriptor
+//                                // TODO: optimize by building type hierarchy.
+//                                val callees = instantiatingClasses
+//                                        .filter { it.isSubclassOf(receiver) }
+//                                        .map { it.unsubstitutedMemberScope.getOverridingOf(descriptor) ?: descriptor }
+//                                        .distinct()
+//                                receiverType to callees
+//                        }
+//                        if (DEBUG > 0) {
+//                            println("Virtual call")
+//                            println("Caller: ${function.descriptor}")
+//                            println("Callee: $callee")
+//                            println("Possible callees:")
+//                            callees.forEach { println("$it") }
+//                            println()
+//                        }
+//                        if (callees.isEmpty())
+//                            constraintGraph.voidNode
+//                        else {
+//                            val calleeConstraintGraphs = callees.map {
+//                                buildFunctionConstraintGraph(it, functionNodesMap, variables, instantiatingClasses)
+//                            }
+//                            val receiverNode = edgeToConstraintNode(node.arguments[0])
+//                            val castedReceiver = ConstraintGraph.Node.Cast(receiverType).also {
+//                                constraintGraph.addNode(it)
+//                            }
+//                            receiverNode.edges += castedReceiver
+//                            val result = if (calleeConstraintGraphs.size == 1) {
+//                                doCall(calleeConstraintGraphs[0], listOf(castedReceiver) + node.arguments.drop(1))
+//                            } else {
+//                                val returns = ConstraintGraph.Node.Const("VirtualCallReturns\$${function.descriptor}").also {
+//                                    constraintGraph.addNode(it)
+//                                }
+//                                calleeConstraintGraphs.forEach { doCall(it, listOf(castedReceiver) + node.arguments.drop(1)).addEdge(returns) }
+//                                returns
+//                            }
+//                            node.callSite?.let { constraintGraph.virtualCallSiteReceivers[it] = castedReceiver to function.descriptor }
+//                            result
+//                        }
+//                    }
+//
+//                    is FunctionTemplateBody.Node.NewObject -> {
+//                        val instanceNode = constraintGraph.classes.getOrPut(node.constructor.constructedClass) {
+//                            val instanceType = ConstraintGraph.Type.concrete(node.constructor.constructedClass.defaultType)
+//                            ConstraintGraph.Node.Const("Instance\$${function.descriptor}", instanceType).also {
+//                                constraintGraph.addNode(it)
+//                            }
+//                        }
+//                        val constructorNode = buildFunctionConstraintGraph(node.constructor, functionNodesMap, variables, instantiatingClasses)
+//                        doCall(constructorNode, listOf(instanceNode) + node.arguments)
+//                        instanceNode
+//                    }
+//
+//                    is FunctionTemplateBody.Node.Singleton ->
+//                        constraintGraph.classes.getOrPut(node.type.constructor.declarationDescriptor as ClassDescriptor) {
+//                            ConstraintGraph.Node.Const("Singleton\$${function.descriptor}", ConstraintGraph.Type.concrete(node.type)).also {
+//                                constraintGraph.addNode(it)
+//                            }
+//                        }
+//
+//                    is FunctionTemplateBody.Node.FieldRead ->
+//                        constraintGraph.fields.getOrPut(node.field) {
+//                            ConstraintGraph.Node.Const("FieldRead\$${function.descriptor}").also {
+//                                constraintGraph.addNode(it)
+//                            }
+//                        }
+//
+//                    is FunctionTemplateBody.Node.FieldWrite -> {
+//                        val fieldNode = constraintGraph.fields.getOrPut(node.field) {
+//                            ConstraintGraph.Node.Const("FieldWrite\$${function.descriptor}").also {
+//                                constraintGraph.addNode(it)
+//                            }
+//                        }
+//                        edgeToConstraintNode(node.value).addEdge(fieldNode)
+//                        constraintGraph.voidNode
+//                    }
+//
+//                    is FunctionTemplateBody.Node.Proxy ->
+//                        node.values.map { edgeToConstraintNode(it) }.let { values ->
+//                            ConstraintGraph.Node.Const("Proxy\$${function.descriptor}").also { node ->
+//                                constraintGraph.addNode(node)
+//                                values.forEach { it.addEdge(node) }
+//                            }
+//                        }
+//
+//                    is FunctionTemplateBody.Node.Variable ->
+//                        error("Variables should've been handled earlier")
+//                }
+//            }
+//        }
+//    }
 
     internal class DevirtualizedCallSite(val possibleReceivers: List<ClassDescriptor>)
 
     internal fun analyze(irModule: IrModuleFragment, context: Context) : Map<IrCall, DevirtualizedCallSite> {
         val isStdlib = context.config.configuration[KonanConfigKeys.NOSTDLIB] == true
-        val intraproceduralAnalysisResult = IntraproceduralAnalysis().analyze(irModule)
+        val intraproceduralAnalysisResult = IntraproceduralAnalysis(context).analyze(irModule)
         if (isStdlib) {
         }
-        return InterproceduralAnalysis(context, intraproceduralAnalysisResult).analyze(irModule)
+        //return InterproceduralAnalysis(context, intraproceduralAnalysisResult).analyze(irModule)
+        return emptyMap()
     }
 
     internal fun devirtualize(irModule: IrModuleFragment, context: Context,
