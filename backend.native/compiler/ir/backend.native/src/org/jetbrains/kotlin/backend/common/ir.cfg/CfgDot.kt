@@ -4,7 +4,7 @@ import java.io.File
 
 //-----------------------------------------------------------------------------//
 
-fun dotFunction(function: Function) {
+fun dotFunction(function: ConcreteFunction) {
 
     createDotDir()
     val dotFile = File("out_dot/${function.name}.dot")

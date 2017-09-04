@@ -112,7 +112,7 @@ internal class RTTIGenerator(override val context: Context) : BitcodeSelectionUt
                 val functionName = it.overriddenDescriptor.functionName
                 val nameSignature = functionName.localHash
                 val implementation = context.cfgDeclarations.functions[it.implementation]
-                val entryPointAddress =   if (implementation == null) {
+                val entryPointAddress = if (implementation == null) {
                     val func = context.llvm.externalFunction(it.implementation.symbolName, getLlvmFunctionType(it.implementation))
                     val result = LLVMConstBitCast(func, int8TypePtr)!!
                     constValue(result)

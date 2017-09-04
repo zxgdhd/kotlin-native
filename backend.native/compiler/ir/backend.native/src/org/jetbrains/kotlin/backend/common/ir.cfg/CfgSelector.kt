@@ -34,11 +34,11 @@ internal class CfgSelector(override val context: Context): IrElementVisitorVoid,
     private val ir = Ir()
 
     private var currentLandingBlock: Block? = null
-    private var currentFunction = Function("Outer")
+    private var currentFunction = ConcreteFunction("Outer")
     private var currentBlock    = currentFunction.enter
 
     // TODO: add args: Array<String> parameter
-    private val globalInitFunction: Function = Function("global-init").also {
+    private val globalInitFunction: ConcreteFunction = ConcreteFunction("global-init").also {
         ir.addFunction(it)
     }
     private val globalInitBlock: Block = globalInitFunction.enter
@@ -120,7 +120,7 @@ internal class CfgSelector(override val context: Context): IrElementVisitorVoid,
     //-------------------------------------------------------------------------//
 
     private fun selectFunction(irFunction: IrFunction) {
-        currentFunction = irFunction.descriptor.cfgFunction
+        currentFunction = irFunction.descriptor.cfgFunction as? ConcreteFunction ?: return
 
         ir.addFunction(currentFunction)
 
@@ -137,10 +137,11 @@ internal class CfgSelector(override val context: Context): IrElementVisitorVoid,
                 is IrBlockBody -> body.statements.forEach { selectStatement(it) }
                 else -> throw TODO("unsupported function body type: $body")
             }
-            if (!currentBlock.isLastInstructionTerminal()) {
-                assert(currentFunction.returnType == TypeUnit)
-                currentBlock.inst(Ret())
-            }
+//            if (!currentBlock.isLastInstructionTerminal()) {
+//                // TODO last block of non unit function may not contain return
+//                assert(currentFunction.returnType == TypeUnit)
+//                currentBlock.inst(Ret())
+//            }
         }
         variableMap.clear()
     }
@@ -169,13 +170,16 @@ internal class CfgSelector(override val context: Context): IrElementVisitorVoid,
             is IrTry                       -> selectTry                      (statement)
             is IrGetField                  -> selectGetField                 (statement)
             is IrSetField                  -> selectSetField                 (statement)
-//            is IrGetObjectValue            -> selectGetObjectValue           (statement)
             is IrInstanceInitializerCall   -> selectInstanceInitializerCall  (statement)
-            else -> {
-                println("ERROR: Not implemented yet: $statement")
-                CfgNull
-            }
+            else                           -> selectionStub                  (statement)
         }
+
+    //-------------------------------------------------------------------------//
+
+    private fun selectionStub(statement: IrStatement): Operand {
+        println("ERROR: Not implemented yet: $statement")
+        return CfgNull
+    }
 
     //-------------------------------------------------------------------------//
 
@@ -476,7 +480,8 @@ internal class CfgSelector(override val context: Context): IrElementVisitorVoid,
 
     private fun generateCall(descriptor: FunctionDescriptor, type: Type, args: List<Operand>): Operand {
 
-        val callee = descriptor.cfgFunction
+        val callee = descriptor.cfgFunction as? ConcreteFunction
+                ?: error("Cannot create direct call to abstract function $descriptor")
 
         val instruction = if (currentLandingBlock != null) {                    // We're inside try block.
             Invoke(callee, newVariable(type), args, currentLandingBlock!!)

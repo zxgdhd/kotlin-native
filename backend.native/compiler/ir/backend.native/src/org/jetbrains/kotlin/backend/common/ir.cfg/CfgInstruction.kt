@@ -1,10 +1,10 @@
 package org.jetbrains.kotlin.backend.common.ir.cfg
 
-class Call(val callee: Function, val def: Variable, val args: List<Operand>)
+class Call(val callee: ConcreteFunction, val def: Variable, val args: List<Operand>)
     : Instruction(args + listOf(callee.ptr),
         defs = if (def.type != TypeUnit) listOf(def) else emptyList())
 
-class Invoke(val callee: Function, val def: Variable, val args: List<Operand>, val landingpad: Block)
+class Invoke(val callee: ConcreteFunction, val def: Variable, val args: List<Operand>, val landingpad: Block)
     : Instruction((listOf(callee.ptr, landingpad.ptr) + args),
         defs = if (def.type != TypeUnit) listOf(def) else emptyList())
 
@@ -35,7 +35,7 @@ class FieldPtr(val def: Variable, val obj: Operand, val fieldIndex: Int)
 class Load(val def: Variable, val base: Operand, val isVar: Boolean)
     : Instruction(listOf(base), listOf(def))
 
-class Store(val value: Operand, val address: Operand)
+class Store(val value: Operand, val address: Variable)
     : Instruction(listOf(value, address))
 
 class Landingpad(val exception: Variable)

@@ -2,10 +2,8 @@ package org.jetbrains.kotlin.backend.common.ir.cfg.bitcode
 
 import kotlinx.cinterop.*
 import llvm.*
-import org.jetbrains.kotlin.backend.common.ir.cfg.Block
-import org.jetbrains.kotlin.backend.common.ir.cfg.CfgNull
+import org.jetbrains.kotlin.backend.common.ir.cfg.*
 import org.jetbrains.kotlin.backend.common.ir.cfg.Function
-import org.jetbrains.kotlin.backend.common.ir.cfg.Operand
 import org.jetbrains.kotlin.backend.konan.Context
 import org.jetbrains.kotlin.backend.konan.llvm.*
 import org.jetbrains.kotlin.konan.target.KonanTarget
@@ -90,7 +88,7 @@ internal class CodeGenerator(override val context: Context) : BitcodeSelectionUt
         code()
     }
 
-    fun prologue(function: Function) {
+    fun prologue(function: ConcreteFunction) {
         val llvmFunction = function.llvmFunction
         val returnType = getLlvmType(function.returnType)
         prologue(llvmFunction, returnType, {

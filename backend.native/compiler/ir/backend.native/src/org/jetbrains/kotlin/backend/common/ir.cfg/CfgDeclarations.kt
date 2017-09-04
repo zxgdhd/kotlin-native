@@ -118,12 +118,16 @@ internal interface TypeResolver : RuntimeAware {
             if (this !in functions) {
                 val returnType = when (this) {
                     is ConstructorDescriptor -> TypeUnit
-                    else -> this.returnType?.cfgType ?: TypeUnit
+                    else -> this.returnType?.cfgType ?: TypeUnit // TODO: use null
                 }
-                val function = Function(this.toCfgName(), returnType)
-                function.parameters += this.allParameters.map {
+                val params = this.allParameters.map {
                     Variable(it.type.cfgType, it.name.asString(), Kind.ARG)
                 }
+                val function = if (modality != Modality.ABSTRACT) {
+                    ::ConcreteFunction
+                } else {
+                    ::AbstractFunction
+                } (this.toCfgName(), returnType, params)
                 functions[this] = function
                 funcMetas[function] = this.metaInfo
             }

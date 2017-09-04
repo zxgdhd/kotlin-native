@@ -2,7 +2,7 @@ package org.jetbrains.kotlin.backend.common.ir.cfg.bitcode
 
 import llvm.*
 import org.jetbrains.kotlin.backend.common.ir.cfg.*
-import org.jetbrains.kotlin.backend.common.ir.cfg.Function
+import org.jetbrains.kotlin.backend.common.ir.cfg.ConcreteFunction
 import org.jetbrains.kotlin.backend.konan.*
 import org.jetbrains.kotlin.backend.konan.llvm.*
 
@@ -21,7 +21,7 @@ internal class CfgToBitcode(val ir: Ir, override val context: Context) : Bitcode
     private val analysisResult = analyzeReturns(ir)
 
     // TODO: add owner to instruction and owner to block
-    private lateinit var currentFunction: Function
+    private lateinit var currentFunction: ConcreteFunction
 
     init {
         context.cfgLlvmDeclarations = createCfgLlvmDeclarations(context)
@@ -69,11 +69,12 @@ internal class CfgToBitcode(val ir: Ir, override val context: Context) : Bitcode
     }
 
 
-    fun selectFunction(function: Function) {
+    fun selectFunction(function: ConcreteFunction) {
         // TODO: handle init func
         if (function.name == "global-init") {
             return
         }
+
         codegen.prologue(function)
         function.parameters.forEachIndexed { paramNum, arg ->
             registers[arg] = codegen.param(function.llvmFunction, paramNum)
@@ -87,6 +88,13 @@ internal class CfgToBitcode(val ir: Ir, override val context: Context) : Bitcode
     private fun selectBlock(block: Block) {
         codegen.appendingTo(codegen.llvmBlockFor(block)) {
             block.instructions.forEach { selectInstruction(it) }
+
+            if (!codegen.isAfterTerminator()) {
+                if (codegen.returnType == voidType)
+                    codegen.ret(null)
+                else
+                    codegen.unreachable()
+            }
         }
     }
 
@@ -129,7 +137,7 @@ internal class CfgToBitcode(val ir: Ir, override val context: Context) : Bitcode
         assert(fieldPtr.obj.type is Type.KlassPtr)
         val klass = (fieldPtr.obj.type as Type.KlassPtr).klass
         val typePtr = pointerType(context.cfgLlvmDeclarations.classes[klass]!!.bodyType)
-        val objectPtr = codegen.gep(selectOperand(fieldPtr.obj), Int32(1).llvm)
+        val objectPtr = codegen.gep(fieldPtr.obj.llvm, Int32(1).llvm)
         val typedObjectPtr = codegen.bitcast(typePtr, objectPtr)
         registers[fieldPtr.def] = LLVMBuildStructGEP(codegen.builder, typedObjectPtr, fieldPtr.fieldIndex, "")!!
     }
@@ -138,13 +146,13 @@ internal class CfgToBitcode(val ir: Ir, override val context: Context) : Bitcode
         assert(instanceOf.type is Type.KlassPtr)
         val klass = (instanceOf.type as Type.KlassPtr).klass
         val typeInfoPtr = klass.typeInfoPtr.llvm
-        val objInfoPtr = codegen.bitcast(codegen.kObjHeaderPtr, selectOperand(instanceOf.value))
+        val objInfoPtr = codegen.bitcast(codegen.kObjHeaderPtr, instanceOf.value.llvm)
         val result = codegen.call(context.llvm.isInstanceFunction, listOf(objInfoPtr, typeInfoPtr))
         registers[instanceOf.def] = LLVMBuildTrunc(codegen.builder, result, kInt1, "")!!
     }
 
     private fun selectThrow(thrw: Throw) {
-        codegen.call(context.llvm.throwExceptionFunction, listOf(selectOperand(thrw.exception)))
+        codegen.call(context.llvm.throwExceptionFunction, listOf(thrw.exception.llvm))
     }
 
     private fun selectLandingpad(landingpad: Landingpad) {
@@ -167,19 +175,19 @@ internal class CfgToBitcode(val ir: Ir, override val context: Context) : Bitcode
             is BinOp.Mul    -> codegen::mul
             is BinOp.Sdiv   -> codegen::div
             else -> error("$binOp is not implemented yet")
-        } (selectOperand(binOp.op1), selectOperand(binOp.op2), "")
+        } (binOp.op1.llvm, binOp.op2.llvm, "")
     }
 
     private fun selectLT0(lt0: LT0) {
-        registers[lt0.def] = codegen.icmpLt(selectOperand(lt0.arg), codegen.kImmZero)
+        registers[lt0.def] = codegen.icmpLt(lt0.arg.llvm, codegen.kImmZero)
     }
 
     private fun selectGT0(gt0: GT0) {
-        registers[gt0.def] = codegen.icmpGt(selectOperand(gt0.arg), codegen.kImmZero)
+        registers[gt0.def] = codegen.icmpGt(gt0.arg.llvm, codegen.kImmZero)
     }
 
     private fun selectAlloc(alloc: Alloc) {
-        registers.createVariable(alloc.def, alloc.value?.let { selectOperand(it) })
+        registers.createVariable(alloc.def, alloc.value?.llvm)
     }
 
     private fun selectAllocInstance(allocInstance: AllocInstance) {
@@ -189,14 +197,15 @@ internal class CfgToBitcode(val ir: Ir, override val context: Context) : Bitcode
     }
 
     private fun selectStore(store: Store) {
-        val value = selectOperand(store.value)
-        val ptr = selectOperand(store.address)
-        val typedPtr = codegen.bitcast(pointerType(getLlvmType(store.value.type)), ptr)
-        codegen.storeAnyLocal(value, typedPtr)
+        val value = store.value.llvm
+//        val ptr = store.address.llvm
+//        val typedPtr = codegen.bitcast(pointerType(getLlvmType(store.value.type)), ptr)
+//        codegen.storeAnyLocal(value, typedPtr)
+        registers[store.address] = value
     }
 
     private fun selectLoad(load: Load) {
-        val ptr = selectOperand(load.base)
+        val ptr = load.base.llvm
         val typedPtr = codegen.bitcast(pointerType(getLlvmType(load.def.type)), ptr)
         registers[load.def] = codegen.loadSlot(typedPtr, load.isVar)
     }
@@ -205,7 +214,7 @@ internal class CfgToBitcode(val ir: Ir, override val context: Context) : Bitcode
         val successBlock = codegen.appendBasicBlock()
         registers[invoke.def] = codegen.invoke(
                 invoke.callee.llvmFunction,
-                invoke.args.map { selectOperand(it) },
+                invoke.args.map { it.llvm },
                 successBlock,
                 codegen.llvmBlockFor(invoke.landingpad)
         )
@@ -215,7 +224,7 @@ internal class CfgToBitcode(val ir: Ir, override val context: Context) : Bitcode
     private fun selectBr(br: Br) = codegen.br(codegen.llvmBlockFor(br.target))
 
     private fun selectCondbr(condbr: Condbr) = codegen.condbr(
-            selectOperand(condbr.condition),
+            condbr.condition.llvm,
             codegen.llvmBlockFor(condbr.targetTrue),
             codegen.llvmBlockFor(condbr.targetFalse)
     )
@@ -224,7 +233,7 @@ internal class CfgToBitcode(val ir: Ir, override val context: Context) : Bitcode
         val value = if (ret.value == CfgUnit) {
             null
         } else {
-            selectOperand(ret.value)
+            ret.value.llvm
         }
         codegen.ret(value)
     }
@@ -233,7 +242,7 @@ internal class CfgToBitcode(val ir: Ir, override val context: Context) : Bitcode
     private fun selectCallVirtual(call: CallVirtual) {
         assert(call.args[0].type is Type.KlassPtr) { "0th arg should be Klass but it is : ${call.args[0].type}" }
         val klass = (call.args[0].type as Type.KlassPtr).klass
-        val typeInfoPtrPtr = LLVMBuildStructGEP(codegen.builder, selectOperand(call.args[0]), 0, "")
+        val typeInfoPtrPtr = LLVMBuildStructGEP(codegen.builder, call.args[0].llvm, 0, "")
         val typeInfoPtr = codegen.load(typeInfoPtrPtr!!)
         val descriptor = context.cfgDeclarations.functions
                 .filterValues { it == call.callee }
@@ -252,7 +261,7 @@ internal class CfgToBitcode(val ir: Ir, override val context: Context) : Bitcode
     private fun selectCallInterface(call: CallInterface) {
         assert(call.args[0].type is Type.KlassPtr) { "0th arg should be Klass but it is : ${call.args[0].type}" }
         val klass = (call.args[0].type as Type.KlassPtr).klass
-        val typeInfoPtrPtr = LLVMBuildStructGEP(codegen.builder, selectOperand(call.args[0]), 0, "")
+        val typeInfoPtrPtr = LLVMBuildStructGEP(codegen.builder, call.args[0].llvm, 0, "")
         val typeInfoPtr = codegen.load(typeInfoPtrPtr!!)
         val methodHash = codegen.functionHash(call.callee)
         val lookupArgs = listOf(typeInfoPtr, methodHash)
@@ -270,8 +279,7 @@ internal class CfgToBitcode(val ir: Ir, override val context: Context) : Bitcode
     private fun call(function: LLVMValueRef, args: List<Operand>, def: Variable,
                      lifetime: Lifetime=Lifetime.IRRELEVANT) {
         val result = codegen.call(
-                function,
-                args.map { selectOperand(it) },
+                function, args.map { it.llvm },
                 if (def != CfgUnit) lifetime else Lifetime.IRRELEVANT
         )
         if (def != CfgUnit) registers[def] = result
@@ -295,10 +303,12 @@ internal class CfgToBitcode(val ir: Ir, override val context: Context) : Bitcode
         }
     }
 
-    fun selectOperand(it: Operand): LLVMValueRef = when(it) {
-        CfgUnit     -> codegen.theUnitInstanceRef.llvm
-        is Variable -> registers[it]
-        is Constant -> selectConst(it)
-        else        -> error("Unexpected operand type")
-    }
+
+    val Operand.llvm: LLVMValueRef
+        get() = when(this) {
+            CfgUnit     -> codegen.theUnitInstanceRef.llvm
+            is Variable -> registers[this]
+            is Constant -> selectConst(this)
+            else        -> error("Unexpected operand type")
+        }
 }

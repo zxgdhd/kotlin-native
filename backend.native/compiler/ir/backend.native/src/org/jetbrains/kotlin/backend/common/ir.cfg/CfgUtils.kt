@@ -70,11 +70,11 @@ val Block.ptr: Constant
 
 //--- Function ----------------------------------------------------------------//
 
-fun Function.newBlock(name: String = "block") = Block(genBlockName(name))
+fun ConcreteFunction.newBlock(name: String = "block") = Block(genBlockName(name))
 
 //-----------------------------------------------------------------------------//
 
-val Function.blocks
+val ConcreteFunction.blocks
     get() = search(this.enter)
 
 //-----------------------------------------------------------------------------//
@@ -85,7 +85,7 @@ val Function.ptr: Constant
 //--- Ir ----------------------------------------------------------------------//
 
 fun Ir.addKlass(klass: Klass)          { klasses[klass.name] = klass }
-fun Ir.addFunction(function: Function) { functions[function.name] = function }
+fun Ir.addFunction(function: ConcreteFunction) { functions[function.name] = function }
 
 //-----------------------------------------------------------------------------//
 // Build direct-ordered list of blocks in graph starting with "enter" block

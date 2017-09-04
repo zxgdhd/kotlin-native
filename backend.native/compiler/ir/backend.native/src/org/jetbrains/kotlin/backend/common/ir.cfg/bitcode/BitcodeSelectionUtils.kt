@@ -1,18 +1,10 @@
 package org.jetbrains.kotlin.backend.common.ir.cfg.bitcode
 
 import llvm.LLVMConstBitCast
-import llvm.LLVMTargetDataRef
 import llvm.LLVMValueRef
 import org.jetbrains.kotlin.backend.common.ir.cfg.Function
-import org.jetbrains.kotlin.backend.common.ir.cfg.FunctionMetaInfo
 import org.jetbrains.kotlin.backend.common.ir.cfg.Klass
-import org.jetbrains.kotlin.backend.common.ir.cfg.KlassMetaInfo
-import org.jetbrains.kotlin.backend.konan.Context
-import org.jetbrains.kotlin.backend.konan.descriptors.isAbstract
-import org.jetbrains.kotlin.backend.konan.descriptors.isIntrinsic
 import org.jetbrains.kotlin.backend.konan.llvm.*
-import org.jetbrains.kotlin.descriptors.ClassDescriptor
-import org.jetbrains.kotlin.descriptors.FunctionDescriptor
 
 internal interface BitcodeSelectionUtils: ContextUtils {
 

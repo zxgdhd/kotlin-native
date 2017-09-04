@@ -89,7 +89,7 @@ fun Block.log() {
 
 //-----------------------------------------------------------------------------//
 
-fun Function.log() {
+fun ConcreteFunction.log() {
     println("\nfun $this {")                                                            // Print selectFunction declaration.
     blocks.forEach(Block::log)                                               // Print the blocks.
     println("}")
@@ -116,6 +116,6 @@ fun Ir.log() {
 
 //-----------------------------------------------------------------------------//
 
-fun Function.genVariableName() = "op${maxVariableId++}"
-fun Function.genBlockName(blockName: String) = "$blockName${maxBlockId++}"
+fun ConcreteFunction.genVariableName() = "op${maxVariableId++}"
+fun ConcreteFunction.genBlockName(blockName: String) = "$blockName${maxBlockId++}"
 
