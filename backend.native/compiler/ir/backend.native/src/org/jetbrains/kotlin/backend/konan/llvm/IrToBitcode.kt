@@ -328,7 +328,7 @@ internal class CodeGeneratorVisitor(val context: Context, val lifetimes: Map<IrE
         context.log{"visitModule                    : ${ir2string(declaration)}"}
 
         val devirtualizedCallSites = Devirtualization.analyze(declaration, context)
-        Devirtualization.devirtualize(declaration, context, devirtualizedCallSites)
+        //Devirtualization.devirtualize(declaration, context, devirtualizedCallSites)
 
         declaration.acceptChildrenVoid(this)
         appendLlvmUsed(context.llvm.usedFunctions)
