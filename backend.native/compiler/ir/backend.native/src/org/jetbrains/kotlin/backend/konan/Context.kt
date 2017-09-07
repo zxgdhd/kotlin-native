@@ -23,6 +23,7 @@ import org.jetbrains.kotlin.backend.common.validateIrModule
 import org.jetbrains.kotlin.backend.jvm.descriptors.initialize
 import org.jetbrains.kotlin.backend.konan.descriptors.*
 import org.jetbrains.kotlin.backend.common.DumpIrTreeWithDescriptorsVisitor
+import org.jetbrains.kotlin.backend.common.ir.cfg.Cfg
 import org.jetbrains.kotlin.backend.common.ir.cfg.CfgDeclarations
 import org.jetbrains.kotlin.backend.common.ir.cfg.Klass
 import org.jetbrains.kotlin.backend.common.ir.cfg.bitcode.CfgLlvmDeclarations
@@ -169,7 +170,7 @@ internal class Context(config: KonanConfig) : KonanBackendContext(config) {
     }
 
     fun getVtableBuilder(klass: Klass): ClassVtablesBuilder {
-        val descriptor = cfgDeclarations.classes
+        val descriptor = cfg.declarations.classes
                 .filterValues { it == klass }
                 .map { it.key }
                 .firstOrNull() ?: error("No declaration for $klass")
@@ -222,8 +223,9 @@ internal class Context(config: KonanConfig) : KonanBackendContext(config) {
     lateinit var bitcodeFileName: String
     lateinit var library: KonanLibraryWriter
 
-    val cfgDeclarations: CfgDeclarations by lazy { CfgDeclarations() }
     lateinit var cfgLlvmDeclarations: CfgLlvmDeclarations
+
+    val cfg = Cfg()
 
     var phase: KonanPhase? = null
     var depth: Int = 0

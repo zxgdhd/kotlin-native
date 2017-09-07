@@ -18,6 +18,8 @@ package org.jetbrains.kotlin.backend.konan
 
 import org.jetbrains.kotlin.analyzer.AnalysisResult
 import org.jetbrains.kotlin.backend.common.ir.cfg.CfgSelector
+import org.jetbrains.kotlin.backend.common.ir.cfg.bitcode.CfgToBitcode
+import org.jetbrains.kotlin.backend.common.ir.cfg.bitcode.createLlvmModule
 import org.jetbrains.kotlin.backend.common.validateIrModule
 import org.jetbrains.kotlin.backend.konan.ir.DeserializerDriver
 import org.jetbrains.kotlin.backend.konan.ir.KonanSymbols
@@ -110,6 +112,10 @@ public fun runTopLevelPhases(konanConfig: KonanConfig, environment: KotlinCoreEn
         }
         phaser.phase(KonanPhase.CFG) {
             CfgSelector(context).select()
+        }
+        phaser.phase(KonanPhase.CFG_TO_BITCODE) {
+            createLlvmModule(context)
+            CfgToBitcode(context).select()
             produceOutput(context)
         }
         phaser.phase(KonanPhase.BITCODE) {

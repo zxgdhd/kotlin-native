@@ -105,13 +105,13 @@ internal class RTTIGenerator(override val context: Context) : BitcodeSelectionUt
         val fieldsPtr = staticData.placeGlobalConstArray("kfields:$className",
                 runtime.fieldTableRecordType, fields)
 
-        val methods = if (context.cfgDeclarations.classMetas[klass]!!.isAbstract) {
+        val methods = if (context.cfg.declarations.classMetas[klass]!!.isAbstract) {
             emptyList()
         } else {
             context.getVtableBuilder(klass).methodTableEntries.map {
                 val functionName = it.overriddenDescriptor.functionName
                 val nameSignature = functionName.localHash
-                val implementation = context.cfgDeclarations.functions[it.implementation]
+                val implementation = context.cfg.declarations.functions[it.implementation]
                 val entryPointAddress = if (implementation == null) {
                     val func = context.llvm.externalFunction(it.implementation.symbolName, getLlvmFunctionType(it.implementation))
                     val result = LLVMConstBitCast(func, int8TypePtr)!!
@@ -135,11 +135,11 @@ internal class RTTIGenerator(override val context: Context) : BitcodeSelectionUt
                 fieldsPtr, fields.size
         )
 
-        val typeInfoGlobalValue = if (context.cfgDeclarations.classMetas[klass]!!.isAbstract) {
+        val typeInfoGlobalValue = if (context.cfg.declarations.classMetas[klass]!!.isAbstract) {
             typeInfo
         } else {
             val vtableEntries = context.getVtableBuilder(klass).vtableEntries.map {
-                val implementation = context.cfgDeclarations.functions[it.implementation]
+                val implementation = context.cfg.declarations.functions[it.implementation]
                 if (implementation == null) {
                     val func = context.llvm.externalFunction(it.implementation.symbolName, getLlvmFunctionType(it.implementation))
                     val result = LLVMConstBitCast(func, int8TypePtr)!!

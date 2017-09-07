@@ -10,9 +10,11 @@ import org.jetbrains.kotlin.backend.konan.llvm.*
 internal fun createCfgLlvmDeclarations(context: Context)
         = DeclarationsGenerator(context).generate()
 
+// TODO: use own llvm declaration classes
 internal class CfgLlvmDeclarations(
         val functions: Map<Function, FunctionLlvmDeclarations>,
-        val classes: Map<Klass, KlassLlvmDeclarations>
+        val classes: Map<Klass, KlassLlvmDeclarations>,
+        val globals: Map<Variable, StaticFieldLlvmDeclarations>
 )
 
 internal data class KlassLlvmDeclarations(
@@ -27,13 +29,23 @@ private class DeclarationsGenerator(override val context: Context) : ContextUtil
         get() = this + "#internal"
 
     fun generate(): CfgLlvmDeclarations {
-        val funcDeclarations = context.cfgDeclarations.funcMetas.filterValues { !it.isIntrinsic }.mapValues {
+        val funcDeclarations = context.cfg.declarations.funcMetas.filterValues { !it.isIntrinsic }.mapValues {
             createFunctionDeclaration(it.key, it.value)
         }
-        val klassDeclarations = context.cfgDeclarations.classMetas.filterValues { !it.isExternal }.mapValues {
+        val klassDeclarations = context.cfg.declarations.classMetas.filterValues { !it.isExternal }.mapValues {
             createClassDeclaration(it.key, it.value)
         }
-        return CfgLlvmDeclarations(funcDeclarations, klassDeclarations)
+
+        val globalDeclarations = context.cfg.declarations.globals.map {
+            it.value to createGlobalDeclaration(it.value)
+        }.toMap()
+        return CfgLlvmDeclarations(funcDeclarations, klassDeclarations, globalDeclarations)
+    }
+
+    private fun createGlobalDeclaration(variable: Variable): StaticFieldLlvmDeclarations {
+        val name = variable.name.internalName
+        val storage = addGlobal("kvar:$name", getLlvmType(variable.type), false, true)
+        return StaticFieldLlvmDeclarations(storage)
     }
 
     private fun createClassDeclaration(klass: Klass, meta: KlassMetaInfo): KlassLlvmDeclarations {
@@ -104,26 +116,27 @@ internal val Klass.typeInfoSymbolName: String
     get() = "ktype:$name"
 
 internal fun RuntimeAware.getLlvmType(function: Function): LLVMTypeRef  {
-    val returnType = getLlvmType(function.returnType)
+    val returnType = getLlvmReturnType(function.returnType)
     val paramTypes = function.parameters.map { getLlvmType(it.type) }.toMutableList()
     if (isObjectType(returnType))
         paramTypes += kObjHeaderPtrPtr
     return functionType(returnType, paramTypes = *paramTypes.toTypedArray())
 }
 
-internal fun RuntimeAware.getLlvmType(type: Type): LLVMTypeRef {
-    return when(type) {
-        Type.boolean -> LLVMInt1Type()!!
-        Type.byte -> LLVMInt8Type()!!
-        Type.short -> LLVMInt16Type()!!
-        Type.int -> LLVMInt32Type()!!
-        Type.long -> LLVMInt64Type()!!
-        Type.float -> LLVMFloatType()!!
-        Type.double -> LLVMDoubleType()!!
-        Type.char -> LLVMInt16Type()!!
-        is Type.KlassPtr -> {
-            if (type.klass == unitKlass) voidType else kObjHeaderPtr
-        }
-        is Type.ptr -> int8TypePtr
-    }
+internal fun RuntimeAware.getLlvmReturnType(type: Type): LLVMTypeRef = when {
+    type.isUnit()   -> voidType
+    else            -> getLlvmType(type)
+}
+
+internal fun RuntimeAware.getLlvmType(type: Type): LLVMTypeRef = when(type) {
+    Type.boolean        -> LLVMInt1Type()!!
+    Type.byte           -> LLVMInt8Type()!!
+    Type.short          -> LLVMInt16Type()!!
+    Type.int            -> LLVMInt32Type()!!
+    Type.long           -> LLVMInt64Type()!!
+    Type.float          -> LLVMFloatType()!!
+    Type.double         -> LLVMDoubleType()!!
+    Type.char           -> LLVMInt16Type()!!
+    is Type.KlassPtr    -> kObjHeaderPtr
+    is Type.ptr         -> int8TypePtr
 }

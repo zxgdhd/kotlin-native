@@ -12,7 +12,7 @@ internal class CodeGenerator(override val context: Context) : BitcodeSelectionUt
 
     private val blockMap = mutableMapOf<Block, LLVMBasicBlockRef>()
 
-    val registers = Registers(this)
+    val registers = Registers(this, context)
 
     private var returnSlot: LLVMValueRef? = null
     private var function: LLVMValueRef? = null
@@ -42,8 +42,6 @@ internal class CodeGenerator(override val context: Context) : BitcodeSelectionUt
     val currentBlock: LLVMBasicBlockRef
         get() = positionHolder.currentBlock
 
-    fun getName(value: LLVMValueRef) = LLVMGetValueName(value)?.toKString()
-
     inner class PositionHolder {
         val builder = LLVMCreateBuilder()!!
 
@@ -53,9 +51,6 @@ internal class CodeGenerator(override val context: Context) : BitcodeSelectionUt
 
         val currentBlock: LLVMBasicBlockRef
             get() = LLVMGetInsertBlock(builder)!!
-
-        val currentFunction: LLVMValueRef
-            get() = LLVMGetBasicBlockParent(currentBlock)!!
 
         fun dispose() {
             LLVMDisposeBuilder(builder)
@@ -90,7 +85,7 @@ internal class CodeGenerator(override val context: Context) : BitcodeSelectionUt
 
     fun prologue(function: ConcreteFunction) {
         val llvmFunction = function.llvmFunction
-        val returnType = getLlvmType(function.returnType)
+        val returnType = getLlvmReturnType(function.returnType)
         prologue(llvmFunction, returnType, {
             blockMap[function.enter] = LLVMAppendBasicBlock(llvmFunction, function.enter.name)!!
             blockMap[function.enter]!!
@@ -244,9 +239,9 @@ internal class CodeGenerator(override val context: Context) : BitcodeSelectionUt
         return value
     }
 
-    fun store(value: LLVMValueRef, ptr: LLVMValueRef) {
-        LLVMBuildStore(builder, value, ptr)
-    }
+//    fun store(value: LLVMValueRef, ptr: LLVMValueRef) {
+//        LLVMBuildStore(builder, value, ptr)
+//    }
 
     fun storeAnyLocal(value: LLVMValueRef, ptr: LLVMValueRef) {
         if (isObjectRef(value)) {
@@ -368,5 +363,5 @@ internal class CodeGenerator(override val context: Context) : BitcodeSelectionUt
     }
 
     fun functionHash(function: Function): LLVMValueRef
-            = context.cfgDeclarations.funcMetas[function]!!.localHash.llvm
+            = context.cfg.declarations.funcMetas[function]!!.localHash.llvm
 }

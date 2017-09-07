@@ -3,16 +3,16 @@ package org.jetbrains.kotlin.backend.common.ir.cfg
 //-----------------------------------------------------------------------------//
 
 fun Type.asString(): String = when (this) {
-    Type.boolean   -> "boolean"
-    Type.byte      -> "byte"
-    Type.short     -> "short"
-    Type.int       -> "int"
-    Type.long      -> "long"
-    Type.float     -> "float"
-    Type.double    -> "double"
-    Type.char      -> "char"
-    is Type.KlassPtr -> klass.name
-    is Type.ptr -> "ptr"
+    Type.boolean        -> "boolean"
+    Type.byte           -> "byte"
+    Type.short          -> "short"
+    Type.int            -> "int"
+    Type.long           -> "long"
+    Type.float          -> "float"
+    Type.double         -> "double"
+    Type.char           -> "char"
+    is Type.KlassPtr    -> klass.name
+    is Type.ptr         -> "ptr"
 }
 
 //-----------------------------------------------------------------------------//
@@ -90,8 +90,8 @@ fun Block.log() {
 //-----------------------------------------------------------------------------//
 
 fun ConcreteFunction.log() {
-    println("\nfun $this {")                                                            // Print selectFunction declaration.
-    blocks.forEach(Block::log)                                               // Print the blocks.
+    println("\nfun $this {")                                                    // Print selectFunction declaration.
+    blocks.forEach(Block::log)                                                  // Print the blocks.
     println("}")
 }
 
@@ -108,10 +108,10 @@ fun Klass.log() {
 
 fun Ir.log() {
     if (klasses.isNotEmpty()) println("\n//--- Classes ---------------------------------------------//")
-    klasses.forEach { it.value.log() }
+    klasses.forEach { it.log() }
     if (functions.isNotEmpty()) println("\n//--- Functions -------------------------------------------//")
-    functions.forEach { it.value.log() }
-    functions.forEach { (_, f) -> dotFunction(f) }
+    functions.forEach { it.log() }
+    functions.forEach { dotFunction(it) }
 }
 
 //-----------------------------------------------------------------------------//

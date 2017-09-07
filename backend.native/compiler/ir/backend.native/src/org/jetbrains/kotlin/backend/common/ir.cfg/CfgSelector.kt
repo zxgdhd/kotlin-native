@@ -2,8 +2,6 @@ package org.jetbrains.kotlin.backend.common.ir.cfg
 
 import org.jetbrains.kotlin.backend.common.descriptors.allParameters
 import org.jetbrains.kotlin.backend.common.descriptors.isSuspend
-import org.jetbrains.kotlin.backend.common.ir.cfg.bitcode.CfgToBitcode
-import org.jetbrains.kotlin.backend.common.ir.cfg.bitcode.createLlvmModule
 import org.jetbrains.kotlin.backend.common.pop
 import org.jetbrains.kotlin.backend.common.push
 import org.jetbrains.kotlin.backend.konan.Context
@@ -31,7 +29,8 @@ import org.jetbrains.kotlin.util.OperatorNameConventions
 
 internal class CfgSelector(override val context: Context): IrElementVisitorVoid, TypeResolver {
 
-    private val ir = Ir()
+    private val ir: Ir
+        get() = context.cfg.ir
 
     private var currentLandingBlock: Block? = null
     private var currentFunction = ConcreteFunction("Outer")
@@ -45,6 +44,9 @@ internal class CfgSelector(override val context: Context): IrElementVisitorVoid,
 
     private val variableMap = mutableMapOf<ValueDescriptor, Variable>()
     private val loopStack   = mutableListOf<LoopLabels>()
+
+    // Maps globals to expressions that should be evaluated in the global init function
+    private val globalLateInitializers = mutableMapOf<Variable, () -> Operand>()
 
     //-------------------------------------------------------------------------//
 
@@ -71,15 +73,11 @@ internal class CfgSelector(override val context: Context): IrElementVisitorVoid,
 
     fun select() {
         context.irModule!!.acceptVoid(this)
+        globalLateInitializers.forEach { global, initializer ->
+            currentBlock.inst(Store(initializer(), global))
+        }
         globalInitBlock.inst(Ret())
         context.log { ir.log(); "" }
-
-        createLlvmModule(context)
-
-        CfgToBitcode(
-                ir,
-                context
-        ).select()
     }
 
     //-------------------------------------------------------------------------//
@@ -101,10 +99,14 @@ internal class CfgSelector(override val context: Context): IrElementVisitorVoid,
 
         if (containingClass == null) {
             declaration.initializer?.expression?.let {
-                val initValue = selectStatement(it)
-                val fieldName = declaration.descriptor.toCfgName()
-                val globalPtr = Constant(descriptor.type.cfgType, fieldName)                                  // TODO should we use special type here?
-//                globalInitBlock.inst(Store(initValue, globalPtr, Cfg0))
+                val global = descriptor.cfgGlobal
+                val initValue: Constant = if (it is IrConst<*>) {
+                    selectConst(it)
+                } else {
+                    globalLateInitializers += global to { selectStatement(it) }
+                    global.type.Null
+                }
+                context.cfg.globalStaticInitializers += global to initValue
             }
         }
     }
@@ -213,18 +215,17 @@ internal class CfgSelector(override val context: Context): IrElementVisitorVoid,
     private fun selectGetField(statement: IrGetField): Operand {
         val fieldType = newVariable(statement.type.cfgType)
         val receiver = statement.receiver
-        return if (receiver != null) {                                                      // It is class field.
+        val address = if (receiver != null) {                                                      // It is class field.
             val thisPtr   = selectStatement(receiver)                                       // Get object pointer.
             val thisType  = receiver.type.cfgType as? Type.KlassPtr
                     ?: error("selecting GetFild on primitive type")                         // Get object type.
             val fieldIndex = thisType.klass.fieldIndex(statement.descriptor.toCfgName())
-            val fieldPtr = currentBlock.inst(FieldPtr(newVariable(Type.FieldPtr), thisPtr, fieldIndex))
-            currentBlock.inst(Load(fieldType, fieldPtr, statement.descriptor.isVar))
+            currentBlock.inst(FieldPtr(newVariable(Type.FieldPtr), thisPtr, fieldIndex))
         } else {                                                                            // It is global field.
-            val fieldName = statement.descriptor.toCfgName()
-            val globalPtr = Constant(Type.FieldPtr, fieldName)                                  // TODO should we use special type here?
-            currentBlock.inst(Load(fieldType, globalPtr, statement.descriptor.isVar))
+            context.cfg.declarations.globals[statement.descriptor] ?:
+                    error("Unknown global ${statement.descriptor}")
         }
+        return currentBlock.inst(Load(fieldType, address, statement.descriptor.isVar))
     }
 
     //-------------------------------------------------------------------------//
@@ -232,18 +233,17 @@ internal class CfgSelector(override val context: Context): IrElementVisitorVoid,
     private fun selectSetField(statement: IrSetField): Operand {
         val value     = selectStatement(statement.value)                                    // Value to store in filed.
         val receiver  = statement.receiver                                                  // Object holding the field.
-        if (receiver != null) {                                                             //
+        val address = if (receiver != null) {                                                             //
             val thisPtr = selectStatement(receiver)                                         // Pointer to the object.
             val thisType  = receiver.type.cfgType as? Type.KlassPtr
                     ?: error("selecting GetField on primitive type")                                    // Get object type.
             val fieldIndex = thisType.klass.fieldIndex(statement.descriptor.toCfgName())
-            val fieldPtr = currentBlock.inst(FieldPtr(newVariable(Type.FieldPtr), thisPtr, fieldIndex))
-            currentBlock.inst(Store(value, fieldPtr))
+            currentBlock.inst(FieldPtr(newVariable(Type.FieldPtr), thisPtr, fieldIndex))
         } else {                                                                            // It is global field.
-            val fieldName = statement.descriptor.toCfgName()
-            val globalPtr = Constant(Type.FieldPtr, fieldName)                                  // TODO should we use special type here?
-//            currentBlock.inst(Store(value, globalPtr, 0.cfg))
+            context.cfg.declarations.globals[statement.descriptor] ?:
+                    error("Unknown global ${statement.descriptor}")
         }
+        currentBlock.inst(Store(value, address))
         return CfgUnit
     }
 
@@ -602,7 +602,7 @@ internal class CfgSelector(override val context: Context): IrElementVisitorVoid,
             null
         } else {
             val newVariable = newVariable(expression.type.cfgType)
-            currentBlock.inst(Alloc(newVariable, newVariable.type))
+            currentBlock.inst(AllocStack(newVariable, newVariable.type))
             newVariable
         }
         val exitBlock = newBlock()
@@ -626,7 +626,6 @@ internal class CfgSelector(override val context: Context): IrElementVisitorVoid,
                 currentBlock.inst(Condbr(selectStatement(irBranch.condition), it, nextBlock))
             }
         }
-
         val clauseExpr = selectStatement(irBranch.result)
         if (!currentBlock.isLastInstructionTerminal()) {
             variable?.let {
@@ -643,19 +642,19 @@ internal class CfgSelector(override val context: Context): IrElementVisitorVoid,
     private fun selectSetVariable(irSetVariable: IrSetVariable): Operand {
         val operand = selectStatement(irSetVariable.value)
         currentBlock.inst(Store(operand, variableMap[irSetVariable.descriptor]!!))
-        return CfgNull
+        return CfgUnit
     }
 
     //-------------------------------------------------------------------------//
 
     private fun selectVariable(irVariable: IrVariable): Operand {
-
+        val descriptor = irVariable.descriptor
         val (value, kind) = irVariable.initializer?.let {
-            Pair(selectStatement(it), if (irVariable.descriptor.isVar) Kind.LOCAL else Kind.LOCAL_IMMUT)
+            Pair(selectStatement(it), if (descriptor.isVar) Kind.LOCAL else Kind.LOCAL_IMMUT)
         } ?: Pair(null, Kind.LOCAL)
-        val variable = Variable(irVariable.descriptor.type.cfgType, irVariable.descriptor.name.asString(), kind, irVariable.descriptor.isVar)
-        variableMap[irVariable.descriptor] = variable
-        currentBlock.inst(Alloc(variable, variable.type, value))
+        val variable = Variable(descriptor.type.cfgType, descriptor.name.asString(), kind, descriptor.isVar)
+        variableMap[descriptor] = variable
+        currentBlock.inst(AllocStack(variable, variable.type, value))
         return CfgUnit
     }
 
@@ -682,6 +681,7 @@ internal class CfgSelector(override val context: Context): IrElementVisitorVoid,
     }
 
     //-------------------------------------------------------------------------//
+
     // Returns first catch block
     private fun selectCatches(irCatches: List<IrCatch>, tryExit: Block): Block {
         val prevBlock = currentBlock

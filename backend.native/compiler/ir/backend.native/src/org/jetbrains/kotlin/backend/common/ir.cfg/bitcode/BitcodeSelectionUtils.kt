@@ -9,11 +9,12 @@ import org.jetbrains.kotlin.backend.konan.llvm.*
 internal interface BitcodeSelectionUtils: ContextUtils {
 
     val Klass.isExternal: Boolean
-            get() = context.cfgDeclarations.classMetas[this]!!.isExternal
+            get() = context.cfg.declarations.classMetas[this]!!.isExternal
 
     val Function.llvmFunction: LLVMValueRef
         get() {
-            val meta = context.cfgDeclarations.funcMetas[this]!!
+            val meta = context.cfg.declarations.funcMetas[this] ?:
+                    error("No meta for $this")
             return if (meta.isExternal) {
                 context.llvm.externalFunction(meta.symbol, getLlvmType(this))
             } else {

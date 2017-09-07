@@ -4,10 +4,15 @@ class Call(val callee: ConcreteFunction, val def: Variable, val args: List<Opera
     : Instruction(args + listOf(callee.ptr),
         defs = if (def.type != TypeUnit) listOf(def) else emptyList())
 
+// TODO: should be terminal
 class Invoke(val callee: ConcreteFunction, val def: Variable, val args: List<Operand>, val landingpad: Block)
     : Instruction((listOf(callee.ptr, landingpad.ptr) + args),
         defs = if (def.type != TypeUnit) listOf(def) else emptyList())
 
+// TODO: replace with new instructions: interface_method, virtual_method
+// which will return concrete function
+// This will make Function class behave like Operand so type hierarchy should be
+// refactored again
 class CallVirtual(val callee: Function, val def: Variable, val args: List<Operand>)
     : Instruction((listOf(callee.ptr) + args), listOf(def))
 
@@ -26,9 +31,13 @@ class Br(val target: Block)
 class Ret(val value: Operand = CfgUnit)
     : Instruction(listOf(value))
 
+// TODO: make throw terminal
 class Throw(val exception: Operand)
     : Instruction(listOf(exception))
 
+/**
+ * Get address of the [fieldIndex] field of the [obj]
+ */
 class FieldPtr(val def: Variable, val obj: Operand, val fieldIndex: Int)
     : Instruction(listOf(obj, fieldIndex.cfg), listOf(def))
 
@@ -38,6 +47,9 @@ class Load(val def: Variable, val base: Operand, val isVar: Boolean)
 class Store(val value: Operand, val address: Variable)
     : Instruction(listOf(value, address))
 
+/**
+ * Landingpad for a given [exception]
+ */
 class Landingpad(val exception: Variable)
     : Instruction(defs = listOf(exception))
 
@@ -48,7 +60,7 @@ class NotInstanceOf(val def: Variable, val value: Operand, val type: Type)
     : Instruction(listOf(value, Constant(Type.ptr(), type)), listOf(def))
 
 // Allocate on stack
-class Alloc(val def: Variable, val type: Type, val value: Operand? = null)
+class AllocStack(val def: Variable, val type: Type, val value: Operand? = null)
 // TODO: add value to uses
     : Instruction(listOf(Constant(type, type)), listOf(def))
 
@@ -65,12 +77,11 @@ class Sext(def: Variable, use: Operand)
 class Trunk(def: Variable, use: Operand)
     : Instruction(listOf(use), listOf(def))
 
-class Gstore(val fieldName: String, val initializer: Operand)
-    : Instruction(listOf(Constant(Type.FieldPtr, fieldName), initializer))
-
+// TODO: too low-level for this IR. Replace with builtin
 class Bitcast(val def: Variable, val rawPointer: Operand, val pointerType: Type)
     : Instruction(listOf(rawPointer, Constant(Type.ptr(), pointerType)), listOf(def))
 
+// TODO: Replace with builtin
 class Gep(val def: Variable, base: Operand, index: Operand)
     : Instruction(listOf(base, index), listOf(def))
 

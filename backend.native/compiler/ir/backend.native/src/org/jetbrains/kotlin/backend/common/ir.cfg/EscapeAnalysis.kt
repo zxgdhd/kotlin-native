@@ -5,7 +5,7 @@ package org.jetbrains.kotlin.backend.common.ir.cfg
 // Determines instructions whose def is used as return value
 fun analyzeReturns(ir: Ir): Map<ConcreteFunction, List<Instruction>> {
     val result = mutableMapOf<ConcreteFunction, List<Instruction>>()
-    ir.functions.values.forEach { result[it] = analyzeReturns(it) }
+    ir.functions.forEach { result[it] = analyzeReturns(it) }
     return result
 }
 

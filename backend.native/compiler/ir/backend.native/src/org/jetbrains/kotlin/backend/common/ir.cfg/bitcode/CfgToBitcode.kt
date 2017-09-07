@@ -12,22 +12,19 @@ internal fun createLlvmModule(context: Context) {
     context.llvmModule = module
 }
 
-internal class CfgToBitcode(val ir: Ir, override val context: Context) : BitcodeSelectionUtils {
+internal class CfgToBitcode(override val context: Context) : BitcodeSelectionUtils {
     private val codegen = CodeGenerator(context)
 
     private val registers: Registers
         get() = codegen.registers
 
-    private val analysisResult = analyzeReturns(ir)
-
-    // TODO: add owner to instruction and owner to block
-    private lateinit var currentFunction: ConcreteFunction
+    private val analysisResult = analyzeReturns(context.cfg.ir)
 
     init {
         context.cfgLlvmDeclarations = createCfgLlvmDeclarations(context)
 
         val rttiGenerator = RTTIGenerator(context)
-        context.cfgDeclarations.classMetas.forEach { klass, meta ->
+        context.cfg.declarations.classMetas.forEach { klass, meta ->
             if (!meta.isExternal) {
                 rttiGenerator.generate(klass)
             }
@@ -35,11 +32,16 @@ internal class CfgToBitcode(val ir: Ir, override val context: Context) : Bitcode
     }
 
     fun select() {
-        ir.functions.values.forEach {
-            currentFunction = it
-            selectFunction(it)
+        context.cfg.globalStaticInitializers.forEach { global, value ->
+            registers.createVariable(global, value.llvm)
         }
-        val main = ir.functions.values.find { it.name == "main" }!!
+
+        // TODO: handle init func
+        context.cfg.ir.functions
+                .filterNot { it.name == "global-init" }
+                .forEach { selectFunction(it) }
+
+        val main = context.cfg.ir.functions.find { it.name == "main" }!!
         val entryFunction = entryPointSelector(
                 main.llvmFunction,
                 getFunctionType(main.llvmFunction),
@@ -70,11 +72,6 @@ internal class CfgToBitcode(val ir: Ir, override val context: Context) : Bitcode
 
 
     fun selectFunction(function: ConcreteFunction) {
-        // TODO: handle init func
-        if (function.name == "global-init") {
-            return
-        }
-
         codegen.prologue(function)
         function.parameters.forEachIndexed { paramNum, arg ->
             registers[arg] = codegen.param(function.llvmFunction, paramNum)
@@ -109,7 +106,7 @@ internal class CfgToBitcode(val ir: Ir, override val context: Context) : Bitcode
             is Condbr           -> this::selectCondbr
             is Store            -> this::selectStore
             is Load             -> this::selectLoad
-            is Alloc            -> this::selectAlloc
+            is AllocStack       -> this::selectAlloc
             is FieldPtr         -> this::selectFieldPtr
             is GT0              -> this::selectGT0
             is LT0              -> this::selectLT0
@@ -123,7 +120,7 @@ internal class CfgToBitcode(val ir: Ir, override val context: Context) : Bitcode
     }
 
     private fun computeDefLifetime(instruction: Instruction): Lifetime =
-        if (instruction in analysisResult[currentFunction]!!) {
+        if (instruction in analysisResult[instruction.owner.owner]!!) {
             Lifetime.RETURN_VALUE
         } else {
             if (instruction.defs != listOf(CfgUnit)) Lifetime.LOCAL else Lifetime.IRRELEVANT
@@ -186,8 +183,8 @@ internal class CfgToBitcode(val ir: Ir, override val context: Context) : Bitcode
         registers[gt0.def] = codegen.icmpGt(gt0.arg.llvm, codegen.kImmZero)
     }
 
-    private fun selectAlloc(alloc: Alloc) {
-        registers.createVariable(alloc.def, alloc.value?.llvm)
+    private fun selectAlloc(allocStack: AllocStack) {
+        registers.createVariable(allocStack.def, allocStack.value?.llvm)
     }
 
     private fun selectAllocInstance(allocInstance: AllocInstance) {
@@ -197,17 +194,17 @@ internal class CfgToBitcode(val ir: Ir, override val context: Context) : Bitcode
     }
 
     private fun selectStore(store: Store) {
-        val value = store.value.llvm
-//        val ptr = store.address.llvm
-//        val typedPtr = codegen.bitcast(pointerType(getLlvmType(store.value.type)), ptr)
-//        codegen.storeAnyLocal(value, typedPtr)
-        registers[store.address] = value
+//        val value =
+////        val ptr = store.address.llvm
+////        val typedPtr = codegen.bitcast(pointerType(getLlvmType(store.value.type)), ptr)
+////        codegen.storeAnyLocal(value, typedPtr)
+        registers[store.address] = store.value.llvm
     }
 
     private fun selectLoad(load: Load) {
-        val ptr = load.base.llvm
-        val typedPtr = codegen.bitcast(pointerType(getLlvmType(load.def.type)), ptr)
-        registers[load.def] = codegen.loadSlot(typedPtr, load.isVar)
+//        val ptr = load.base.llvm
+//        val typedPtr = codegen.bitcast(pointerType(getLlvmType(load.def.type)), ptr)
+        registers[load.def] = load.base.llvm
     }
 
     private fun selectInvoke(invoke: Invoke) {
@@ -244,7 +241,7 @@ internal class CfgToBitcode(val ir: Ir, override val context: Context) : Bitcode
         val klass = (call.args[0].type as Type.KlassPtr).klass
         val typeInfoPtrPtr = LLVMBuildStructGEP(codegen.builder, call.args[0].llvm, 0, "")
         val typeInfoPtr = codegen.load(typeInfoPtrPtr!!)
-        val descriptor = context.cfgDeclarations.functions
+        val descriptor = context.cfg.declarations.functions
                 .filterValues { it == call.callee }
                 .map { it.key }
                 .firstOrNull() ?: error("No declaration for ${call.callee}")
@@ -299,6 +296,8 @@ internal class CfgToBitcode(val ir: Ir, override val context: Context) : Bitcode
                     context.builtIns.stringType, const.value as String).llvm
             TypeUnit            -> codegen.theUnitInstanceRef.llvm
 //            is Type.ArrayPtr    -> codegen.staticData.createKotlinArray(const.type.type)
+//            Type.GlobalPtr      -> context.cfgLlvmDeclarations.globals[const.value as Variable]?.storage
+//                    ?: error("No such global ${const.value.name}")
             else                -> TODO("Const ${const.type} is not implemented yet")
         }
     }

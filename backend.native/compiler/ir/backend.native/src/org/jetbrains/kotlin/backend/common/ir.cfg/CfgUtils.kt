@@ -5,7 +5,11 @@ package org.jetbrains.kotlin.backend.common.ir.cfg
 val CfgNull = Constant(TypeUnit, "null")
 val Int.cfg : Constant
     get() = Constant(Type.int, this)
-val CfgUnit = Variable(TypeUnit, "unit", Kind.STATIC)
+val CfgUnit = Variable(TypeUnit, "unit", Kind.GLOBAL)
+
+
+val Type.Null : Constant
+    get() = Constant(this, "null")
 
 //--- Opcode ------------------------------------------------------------------//
 
@@ -26,6 +30,7 @@ fun Block.addSuccessor(successor: Block) {
 //-----------------------------------------------------------------------------//
 
 fun Block.inst(instruction: Instruction): Variable {
+    instruction.owner = this
     instructions += instruction
 
     return when (instruction) {
@@ -45,7 +50,7 @@ fun Block.inst(instruction: Instruction): Variable {
         is Call             -> instruction.def
         is CallVirtual      -> instruction.def
         is CallInterface    -> instruction.def
-        is Alloc            -> instruction.def
+        is AllocStack       -> instruction.def
         is AllocInstance    -> instruction.def
         is InstanceOf       -> instruction.def
         is FieldPtr         -> instruction.def
@@ -70,7 +75,8 @@ val Block.ptr: Constant
 
 //--- Function ----------------------------------------------------------------//
 
-fun ConcreteFunction.newBlock(name: String = "block") = Block(genBlockName(name))
+fun ConcreteFunction.newBlock(name: String = "block")
+        = Block(genBlockName(name), this)
 
 //-----------------------------------------------------------------------------//
 
@@ -84,8 +90,8 @@ val Function.ptr: Constant
 
 //--- Ir ----------------------------------------------------------------------//
 
-fun Ir.addKlass(klass: Klass)          { klasses[klass.name] = klass }
-fun Ir.addFunction(function: ConcreteFunction) { functions[function.name] = function }
+fun Ir.addKlass(klass: Klass)          { klasses += klass }
+fun Ir.addFunction(function: ConcreteFunction) { functions += function }
 
 //-----------------------------------------------------------------------------//
 // Build direct-ordered list of blocks in graph starting with "enter" block

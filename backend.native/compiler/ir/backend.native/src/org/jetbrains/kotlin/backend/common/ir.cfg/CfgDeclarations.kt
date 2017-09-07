@@ -20,12 +20,14 @@ import org.jetbrains.kotlin.types.TypeUtils
 import org.jetbrains.kotlin.types.typeUtil.isUnit
 
 internal class CfgDeclarations(
-        val functions: MutableMap<FunctionDescriptor, Function> = mutableMapOf(),
-        val classes: MutableMap<ClassDescriptor, Klass> = mutableMapOf(),
-        val funcMetas: MutableMap<Function, FunctionMetaInfo> = mutableMapOf(),
-        val classMetas: MutableMap<Klass, KlassMetaInfo> = mutableMapOf()
+        val functions:  MutableMap<FunctionDescriptor, Function> = mutableMapOf(),
+        val classes:    MutableMap<ClassDescriptor, Klass> = mutableMapOf(),
+        val funcMetas:  MutableMap<Function, FunctionMetaInfo> = mutableMapOf(),
+        val classMetas: MutableMap<Klass, KlassMetaInfo> = mutableMapOf(),
+        val globals:    MutableMap<PropertyDescriptor, Variable> = mutableMapOf()
 )
 
+// TODO: remove and introduce Symbol class
 class KlassMetaInfo(
         val isExported: Boolean,
         val isExternal: Boolean,
@@ -42,7 +44,7 @@ internal class FunctionMetaInfo(
 )
 
 /**
- * Maps Declarations to CfgTypes and Functions
+ * Maps Declarations to CfgTypes, Functions, Globals
  */
 internal interface TypeResolver : RuntimeAware {
     val context: Context
@@ -51,16 +53,19 @@ internal interface TypeResolver : RuntimeAware {
         get() = context.llvm.runtime
 
     private val classes: MutableMap<ClassDescriptor, Klass>
-        get() = context.cfgDeclarations.classes
+        get() = context.cfg.declarations.classes
 
     private val functions: MutableMap<FunctionDescriptor, Function>
-        get() = context.cfgDeclarations.functions
+        get() = context.cfg.declarations.functions
+
+    private val globals: MutableMap<PropertyDescriptor, Variable>
+        get() = context.cfg.declarations.globals
 
     private val classMetas: MutableMap<Klass, KlassMetaInfo>
-        get() = context.cfgDeclarations.classMetas
+        get() = context.cfg.declarations.classMetas
 
     private val funcMetas: MutableMap<Function, FunctionMetaInfo>
-        get() = context.cfgDeclarations.funcMetas
+        get() = context.cfg.declarations.funcMetas
 
     fun isExternal(descriptor: DeclarationDescriptor) = descriptor.module != context.ir.irModule.descriptor
 
@@ -134,6 +139,15 @@ internal interface TypeResolver : RuntimeAware {
             return functions[this]!!
         }
 
+    val PropertyDescriptor.cfgGlobal: Variable
+        get() {
+            assert(this.containingDeclaration is PackageFragmentDescriptor) { "$name is not global" }
+            if (this !in globals) {
+                globals[this] = Variable(this.type.cfgType, this.name.asString(), Kind.GLOBAL, this.isVar)
+            }
+            return globals[this]!!
+        }
+
 
     /**
      * All fields of the class instance.
@@ -182,6 +196,7 @@ internal interface TypeResolver : RuntimeAware {
             it.fqNameSafe.localHash.value
         }
     }
+
 
     val CallableDescriptor.containingClass: Klass?
         get() {
