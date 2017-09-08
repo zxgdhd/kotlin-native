@@ -170,9 +170,8 @@ internal class Context(config: KonanConfig) : KonanBackendContext(config) {
     // But we have to wait until the code generation phase,
     // to dump this information into generated file.
     var serializedLinkData: LinkData? = null
-    val moduleEscapeAnalysisResult: ModuleEscapeAnalysisResult.ModuleEAResult.Builder by lazy {
-        ModuleEscapeAnalysisResult.ModuleEAResult.newBuilder()
-    }
+    val escapeAnalysisResult = lazy { ModuleEscapeAnalysisResult.ModuleEAResult.newBuilder() }
+    val devirtualizationAnalysisResult = lazy { ModuleDevirtualizationAnalysisResult.Module.newBuilder() }
 
     @Deprecated("")
     lateinit var psi2IrGeneratorContext: GeneratorContext

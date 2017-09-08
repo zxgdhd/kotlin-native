@@ -45,6 +45,8 @@ interface KonanLibraryLayout {
         get() = File(linkdataDir, "module")
     val escapeAnalysisFile
         get() = File(linkdataDir, "module_escape_analysis")
+    val devirtualizationAnalysisFile
+        get() = File(linkdataDir, "module_devirtualization_analysis")
     fun packageFile(packageName: String)
         = File(linkdataDir, if (packageName == "") "root_package" else "package_$packageName")
 }

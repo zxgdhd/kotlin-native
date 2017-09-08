@@ -91,6 +91,10 @@ class LibraryWriterImpl(override val libDir: File, currentAbiVersion: Int,
         escapeAnalysisFile.writeBytes(escapeAnalysis)
     }
 
+    override fun addDevirtualizationAnalysis(devirtualizationAnalysis: ByteArray) {
+        devirtualizationAnalysisFile.writeBytes(devirtualizationAnalysis)
+    }
+
     override fun commit() {
         manifestProperties.saveToFile(manifestFile)
         if (!nopack) {
@@ -110,7 +114,8 @@ internal fun buildLibrary(
     llvmModule: LLVMModuleRef, 
     nopack: Boolean, 
     manifest: String?,
-    escapeAnalysis: ByteArray?): KonanLibraryWriter {
+    escapeAnalysis: ByteArray?,
+    devirtualizationAnalysis: ByteArray?): KonanLibraryWriter {
 
     val library = LibraryWriterImpl(output, abiVersion, target, nopack)
 
@@ -124,6 +129,7 @@ internal fun buildLibrary(
     }
     manifest ?.let { library.addManifestAddend(it) }
     escapeAnalysis?.let { library.addEscapeAnalysis(it) }
+    devirtualizationAnalysis?.let { library.addDevirtualizationAnalysis(it) }
 
     library.commit()
     return library

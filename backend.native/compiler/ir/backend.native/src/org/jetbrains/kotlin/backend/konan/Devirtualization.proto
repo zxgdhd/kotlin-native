@@ -1,0 +1,169 @@
+syntax = "proto2";
+package org.jetbrains.kotlin.backend.konan;
+
+option java_outer_classname = "ModuleDevirtualizationAnalysisResult";
+option optimize_for = LITE_RUNTIME;
+
+message ExternalType {
+    required string name = 1;
+}
+
+message ItableSlot {
+    required int64 hash = 1;
+    required int32 impl = 2;
+}
+
+message DeclaredType {
+    required bool isFinal = 1;
+    required bool isAbstract = 2;
+    repeated int32 superTypes = 3;
+    repeated int32 vtable = 4;
+    repeated ItableSlot itable = 5;
+}
+
+message PublicType {
+    required string name = 1;
+    required DeclaredType intestines = 2;
+}
+
+message PrivateType {
+    optional string name = 1;
+    required int32 index = 2;
+    required DeclaredType intestines = 3;
+}
+
+message Type {
+    oneof type {
+        ExternalType external = 1;
+        PublicType public = 2;
+        PrivateType private = 3;
+    }
+}
+
+message ExternalFunctionId {
+    required string name = 1;
+}
+
+message PublicFunctionId {
+    required string name = 1;
+}
+
+message PrivateFunctionId {
+    optional string name = 1;
+    required int32 index = 2;
+}
+
+message FunctionId {
+    oneof functionId {
+        ExternalFunctionId external = 1;
+        PublicFunctionId public = 2;
+        PrivateFunctionId private = 3;
+    }
+}
+
+message SymbolTable {
+    repeated Type types = 1;
+    repeated FunctionId functionIds = 2;
+}
+
+message Field {
+    optional int32 type = 1;
+    required string name = 2;
+}
+
+message Edge {
+    required int32 node = 1;
+    optional int32 castToType = 2;
+}
+
+message Parameter {
+    required int32 index = 1;
+}
+
+message Const {
+    required int32 type = 1;
+}
+
+message Call {
+    required int32 callee = 1;
+    repeated Edge arguments = 2;
+    required int32 returnType = 3;
+}
+
+message StaticCall {
+    required Call call = 1;
+}
+
+message NewObject {
+    required Call call = 1;
+}
+
+message VirtualCall {
+    required Call call = 1;
+    required int32 receiverType = 2;
+}
+
+message VtableCall {
+    required VirtualCall virtualCall = 1;
+    required int32 calleeVtableIndex = 2;
+}
+
+message ItableCall {
+    required VirtualCall virtualCall = 1;
+    required int64 calleeHash = 2;
+}
+
+message Singleton {
+    required int32 type = 1;
+}
+
+message FieldRead {
+    optional Edge receiver = 1;
+    required Field field = 2;
+}
+
+message FieldWrite {
+    optional Edge receiver = 1;
+    required Field field = 2;
+    required Edge value = 3;
+}
+
+message Variable {
+    repeated Edge values = 1;
+}
+
+message TempVariable {
+    repeated Edge values = 1;
+}
+
+message Node {
+    oneof node {
+        Parameter parameter = 1;
+        Const const = 2;
+        StaticCall staticCall = 3;
+        NewObject newObject = 4;
+        VtableCall vtableCall = 5;
+        ItableCall itableCall = 6;
+        Singleton singleton = 7;
+        FieldRead fieldRead = 8;
+        FieldWrite fieldWrite = 9;
+        Variable variable = 10;
+        TempVariable tempVariable = 11;
+    }
+}
+
+message FunctionTemplateBody {
+    repeated Node nodes = 1;
+    required int32 returns = 2;
+}
+
+message FunctionTemplate {
+    required int32 id = 1;
+    required int32 numberOfParameters = 2;
+    required FunctionTemplateBody body = 3;
+}
+
+message Module {
+    required SymbolTable symbolTable = 1;
+    repeated FunctionTemplate functionTemplates = 2;
+}

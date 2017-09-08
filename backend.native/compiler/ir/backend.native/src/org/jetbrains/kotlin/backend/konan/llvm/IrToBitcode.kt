@@ -25,6 +25,7 @@ import org.jetbrains.kotlin.backend.konan.*
 import org.jetbrains.kotlin.backend.konan.descriptors.*
 import org.jetbrains.kotlin.backend.konan.ir.*
 import org.jetbrains.kotlin.backend.konan.library.impl.buildLibrary
+import org.jetbrains.kotlin.backend.konan.util.getValueOrNull
 import org.jetbrains.kotlin.builtins.KotlinBuiltIns
 import org.jetbrains.kotlin.descriptors.*
 import org.jetbrains.kotlin.incremental.components.NoLookupLocation
@@ -125,11 +126,12 @@ internal fun produceOutput(context: Context) {
                 context.serializedLinkData!!, 
                 abiVersion,
                 target,
-                libraryName, 
+                libraryName,
                 llvmModule,
                 nopack,
                 manifest,
-                context.moduleEscapeAnalysisResult.build().toByteArray())
+                context.escapeAnalysisResult.getValueOrNull()?.build()?.toByteArray(),
+                context.devirtualizationAnalysisResult.getValueOrNull()?.build()?.toByteArray())
 
             context.library = library
             context.bitcodeFileName = library.mainBitcodeFileName
