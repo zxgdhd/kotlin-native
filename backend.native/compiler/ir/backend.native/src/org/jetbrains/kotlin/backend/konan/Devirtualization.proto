@@ -46,6 +46,7 @@ message ExternalFunctionId {
 
 message PublicFunctionId {
     required string name = 1;
+    required int32 index = 2;
 }
 
 message PrivateFunctionId {

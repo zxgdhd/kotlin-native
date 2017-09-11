@@ -269,7 +269,7 @@ internal object Devirtualization {
             var numberOfFunctions = 0
         }
 
-        sealed class FunctionId {
+        abstract class FunctionId {
             class External(val name: String): FunctionId() {
                 override fun equals(other: Any?): Boolean {
                     if (this === other) return true
@@ -287,7 +287,9 @@ internal object Devirtualization {
                 }
             }
 
-            class Public(val name: String, val module: Module/*, val zindex: Int*/) : FunctionId() {
+            abstract class Declared(val module: Module, val symbolTableIndex: Int): FunctionId()
+
+            class Public(val name: String, module: Module, symbolTableIndex: Int) : Declared(module, symbolTableIndex) {
                 override fun equals(other: Any?): Boolean {
                     if (this === other) return true
                     if (other !is Public) return false
@@ -304,7 +306,7 @@ internal object Devirtualization {
                 }
             }
 
-            class Private(val name: String, val index: Int, val module: Module, val zindex: Int = index) : FunctionId() {
+            class Private(val name: String, val index: Int, module: Module, symbolTableIndex: Int) : Declared(module, symbolTableIndex) {
                 override fun equals(other: Any?): Boolean {
                     if (this === other) return true
                     if (other !is Private) return false
@@ -377,7 +379,7 @@ internal object Devirtualization {
 
         var privateTypeIndex = 0
         var privateFunIndex = 0
-        var nonAbstractFunIndex = 0
+        var couldBeCalledVirtuallyIndex = 0
 
         init {
             irModule.accept(object : IrElementVisitorVoid {
@@ -402,29 +404,22 @@ internal object Devirtualization {
         }
 
         fun mapClass(descriptor: ClassDescriptor): FunctionTemplateBody.Type {
+            val name = descriptor.fqNameSafe.asString()
             if (descriptor.module != irModule.descriptor)
-                return classMap.getOrPut(descriptor) {
-                    FunctionTemplateBody.Type.External(
-                            descriptor.fqNameSafe.asString())
-                }
+                return classMap.getOrPut(descriptor) { FunctionTemplateBody.Type.External(name) }
+
             classMap[descriptor]?.let { return it }
+
+            val isFinal = descriptor.modality == Modality.FINAL && descriptor.kind != ClassKind.ENUM_CLASS
+            val isAbstract = descriptor.isAbstract()
             val type = if (descriptor.isExported())
-                FunctionTemplateBody.Type.Public(
-                        descriptor.fqNameSafe.asString(),
-                        descriptor.modality == Modality.FINAL && descriptor.kind != ClassKind.ENUM_CLASS,
-                        descriptor.isAbstract())
+                FunctionTemplateBody.Type.Public(name, isFinal, isAbstract)
             else
-                FunctionTemplateBody.Type.Private(
-                        descriptor.fqNameSafe.asString(),
-                        privateTypeIndex++,
-                        descriptor.modality == Modality.FINAL && descriptor.kind != ClassKind.ENUM_CLASS,
-                        descriptor.isAbstract())
+                FunctionTemplateBody.Type.Private(name, privateTypeIndex++, isFinal, isAbstract)
             if (!descriptor.isInterface) {
                 val vtableBuilder = context.getVtableBuilder(descriptor)
-                type.vtable.addAll(
-                        vtableBuilder.vtableEntries.map { mapFunction(it.getImplementation(context)) }
-                )
-                if (!descriptor.isAbstract()) {
+                type.vtable += vtableBuilder.vtableEntries.map { mapFunction(it.getImplementation(context)) }
+                if (!isAbstract) {
                     vtableBuilder.methodTableEntries.forEach {
                         type.itable.put(
                                 it.overriddenDescriptor.functionName.localHash.value,
@@ -434,9 +429,7 @@ internal object Devirtualization {
                 }
             }
             classMap.put(descriptor, type)
-            type.superTypes.addAll(
-                    descriptor.defaultType.immediateSupertypes().map { mapType(it) }
-            )
+            type.superTypes += descriptor.defaultType.immediateSupertypes().map { mapType(it) }
             return type
         }
 
@@ -445,24 +438,28 @@ internal object Devirtualization {
 
         fun mapFunction(descriptor: CallableDescriptor) = descriptor.original.let {
             functionMap.getOrPut(it) {
-                if (it.module != irModule.descriptor || (it is FunctionDescriptor && it.externalOrIntrinsic()))
-                    FunctionTemplateBody.FunctionId.External((it as FunctionDescriptor).symbolName)
-                else {
-                    if (it is FunctionDescriptor && it.isExported())
-                        FunctionTemplateBody.FunctionId.Public(it.symbolName, module)
-                    else {
-                        val name = if (it is FunctionDescriptor)
-                            it.functionName
-                        else
-                            "${(it as PropertyDescriptor).symbolName}_init"
-                        val isAbstract = it is FunctionDescriptor && it.modality == Modality.ABSTRACT
-                        val placeToFunctionsTable = !isAbstract
-                                && (it is FunctionDescriptor && it.isOverridableOrOverrides && (it.containingDeclaration as ClassDescriptor).kind != ClassKind.ANNOTATION_CLASS)
-                        if (descriptor is FunctionDescriptor && placeToFunctionsTable)
-                            ++module.numberOfFunctions
-                        FunctionTemplateBody.FunctionId.Private(name, privateFunIndex++, module,
-                                if (!placeToFunctionsTable) -1 else nonAbstractFunIndex++)
+                when (it) {
+                    is PropertyDescriptor ->
+                        FunctionTemplateBody.FunctionId.Private("${it.symbolName}_init", privateFunIndex++, module, -1)
+
+                    is FunctionDescriptor -> {
+                        if (it.module != irModule.descriptor || it.externalOrIntrinsic())
+                            FunctionTemplateBody.FunctionId.External(it.symbolName)
+                        else {
+                            val isAbstract = it.modality == Modality.ABSTRACT
+                            val placeToFunctionsTable = !isAbstract && it.isOverridableOrOverrides
+                                    && (it.containingDeclaration as ClassDescriptor).kind != ClassKind.ANNOTATION_CLASS
+                            if (placeToFunctionsTable)
+                                ++module.numberOfFunctions
+                            val symbolTableIndex = if (!placeToFunctionsTable) -1 else couldBeCalledVirtuallyIndex++
+                            if (it.isExported())
+                                FunctionTemplateBody.FunctionId.Public(it.symbolName, module, symbolTableIndex)
+                            else
+                                FunctionTemplateBody.FunctionId.Private(it.functionName, privateFunIndex++, module, symbolTableIndex)
+                        }
                     }
+
+                    else -> error("Unknown descriptor: $it")
                 }
             }
         }
@@ -1577,7 +1574,7 @@ internal object Devirtualization {
 //                    }
             val typeMap = symbolTable.classMap.values.withIndex().associateBy({ it.value }, { it.index })
             val functionIdMap = symbolTable.functionMap.values.withIndex().associateBy({ it.value }, { it.index })
-            println("TYPES: ${typeMap.size}, FUNCTIONS: ${functionIdMap.size}, PRIVATE FUNCTIONS: ${functionIdMap.keys.count { it is FunctionTemplateBody.FunctionId.Private }}, FUNCTION TABLE SIZE: ${symbolTable.nonAbstractFunIndex}")
+            println("TYPES: ${typeMap.size}, FUNCTIONS: ${functionIdMap.size}, PRIVATE FUNCTIONS: ${functionIdMap.keys.count { it is FunctionTemplateBody.FunctionId.Private }}, FUNCTION TABLE SIZE: ${symbolTable.couldBeCalledVirtuallyIndex}")
             for (type in typeMap.entries.sortedBy { it.value }.map { it.key }) {
 
                 fun buildTypeIntestines(type: FunctionTemplateBody.Type.Declared): ModuleDevirtualizationAnalysisResult.DeclaredType.Builder {
@@ -1632,13 +1629,14 @@ internal object Devirtualization {
                     is FunctionTemplateBody.FunctionId.Public -> {
                         val publicFunctionIdBuilder = ModuleDevirtualizationAnalysisResult.PublicFunctionId.newBuilder()
                         publicFunctionIdBuilder.name = functionId.name
+                        publicFunctionIdBuilder.index = functionId.symbolTableIndex
                         functionIdBuilder.setPublic(publicFunctionIdBuilder)
                     }
 
                     is FunctionTemplateBody.FunctionId.Private -> {
                         val privateFunctionIdBuilder = ModuleDevirtualizationAnalysisResult.PrivateFunctionId.newBuilder()
                         privateFunctionIdBuilder.name = functionId.name
-                        privateFunctionIdBuilder.index = functionId.zindex
+                        privateFunctionIdBuilder.index = functionId.symbolTableIndex
                         functionIdBuilder.setPrivate(privateFunctionIdBuilder)
                     }
                 }
@@ -1814,16 +1812,20 @@ internal object Devirtualization {
                         ModuleDevirtualizationAnalysisResult.FunctionId.FunctionIdCase.EXTERNAL ->
                             FunctionTemplateBody.FunctionId.External(it.external.name)
 
-                        ModuleDevirtualizationAnalysisResult.FunctionId.FunctionIdCase.PUBLIC ->
-                            FunctionTemplateBody.FunctionId.Public(it.public.name, module).also {
+                        ModuleDevirtualizationAnalysisResult.FunctionId.FunctionIdCase.PUBLIC -> {
+                            val symbolTableIndex = it.public.index
+                            if (symbolTableIndex >= 0)
+                                ++module.numberOfFunctions
+                            FunctionTemplateBody.FunctionId.Public(it.public.name, module, symbolTableIndex).also {
                                 publicFunctionsMap.put(it.name, it)
                             }
+                        }
 
                         ModuleDevirtualizationAnalysisResult.FunctionId.FunctionIdCase.PRIVATE -> {
-                            val zindex = it.private.index
-                            if (zindex >= 0)
+                            val symbolTableIndex = it.private.index
+                            if (symbolTableIndex >= 0)
                                 ++module.numberOfFunctions
-                            FunctionTemplateBody.FunctionId.Private(it.private.name, privateFunIndex++, module, zindex)
+                            FunctionTemplateBody.FunctionId.Private(it.private.name, privateFunIndex++, module, symbolTableIndex)
                         }
 
                         else -> error("Unknown function id: ${it.functionIdCase}")
@@ -2020,8 +2022,8 @@ internal object Devirtualization {
         val privateFunctions = intraproceduralAnalysisResult.symbolTable.functionMap
                 .asSequence()
                 .filter { it.key is FunctionDescriptor }
-                .filter { it.value.let { it is FunctionTemplateBody.FunctionId.Private && it.zindex >= 0 } }
-                .sortedBy { (it.value as FunctionTemplateBody.FunctionId.Private).zindex }
+                .filter { it.value.let { it is FunctionTemplateBody.FunctionId.Declared && it.symbolTableIndex >= 0 } }
+                .sortedBy { (it.value as FunctionTemplateBody.FunctionId.Declared).symbolTableIndex }
                 .map { it.key as FunctionDescriptor }
                 .toList()
         val devirtualizedCallSites = InterproceduralAnalysis(context, externalAnalysisResult, intraproceduralAnalysisResult).analyze(irModule)
@@ -2051,7 +2053,7 @@ internal object Devirtualization {
                             (expression as? IrCallImpl)?.typeArguments,
                             actualCallee.module.name,
                             actualCallee.module.numberOfFunctions,
-                            actualCallee.zindex
+                            actualCallee.symbolTableIndex
                     ).apply {
                         this.dispatchReceiver    = dispatchReceiver
                         this.extensionReceiver   = expression.extensionReceiver
