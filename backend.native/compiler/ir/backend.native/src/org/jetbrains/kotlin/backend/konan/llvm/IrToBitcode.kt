@@ -329,8 +329,14 @@ internal class CodeGeneratorVisitor(val context: Context, val lifetimes: Map<IrE
     override fun visitModuleFragment(declaration: IrModuleFragment) {
         context.log{"visitModule                    : ${ir2string(declaration)}"}
 
-        val devirtualizedCallSites = Devirtualization.analyze(declaration, context)
-        //Devirtualization.devirtualize(declaration, context, devirtualizedCallSites)
+        val devirtualizationAnalysisResult = Devirtualization.analyze(declaration, context)
+
+        println("private_functions_${declaration.descriptor.name}")
+        codegen.staticData.placeGlobalConstArray("private_functions_${declaration.descriptor.name}", int8TypePtr,
+                devirtualizationAnalysisResult.privateFunctions.map { constPointer(codegen.functionLlvmValue(it)).bitcast(int8TypePtr) },
+                isExported = true
+        )
+        Devirtualization.devirtualize(declaration, context, devirtualizationAnalysisResult.devirtualizedCallSites)
 
         declaration.acceptChildrenVoid(this)
         appendLlvmUsed(context.llvm.usedFunctions)
@@ -1873,12 +1879,30 @@ internal class CodeGeneratorVisitor(val context: Context, val lifetimes: Map<IrE
             return evaluateIntrinsicCall(callee, argsWithContinuationIfNeeded)
         }
 
+        if (callee is IrPrivateFunctionCall)
+            return evaluatePrivateFunctionCall(callee, argsWithContinuationIfNeeded, resultLifetime)
+
         when (descriptor) {
             is IrBuiltinOperatorDescriptorBase -> return evaluateOperatorCall      (callee, argsWithContinuationIfNeeded)
             is ConstructorDescriptor           -> return evaluateConstructorCall   (callee, argsWithContinuationIfNeeded)
             else                               -> return evaluateSimpleFunctionCall(
                     descriptor, argsWithContinuationIfNeeded, resultLifetime, callee.superQualifier)
         }
+    }
+
+    //-------------------------------------------------------------------------//
+
+    private fun evaluatePrivateFunctionCall(callee: IrPrivateFunctionCall, args: List<LLVMValueRef>,
+                                            resultLifetime: Lifetime): LLVMValueRef {
+        val functionsList    = codegen.importGlobal("private_functions_${callee.moduleName}", LLVMArrayType(int8TypePtr, callee.totalFunctions)!!)
+        val functionIndex    = LLVMConstInt(LLVMInt32Type(), callee.functionIndex.toLong(), 1)!!
+        val functionPlacePtr = LLVMBuildGEP(functionGenerationContext.builder, functionsList, cValuesOf(kImmZero, functionIndex), 2, "")!!
+        //val functionPlacePtr = functionGenerationContext.gep(functionsList, functionIndex, "")
+        val functionPtr      = functionGenerationContext.load(functionPlacePtr)
+
+        val functionPtrType  = pointerType(codegen.getLlvmFunctionType(callee.descriptor))   // Construct type of the method to be invoked
+        val function         = functionGenerationContext.bitcast(functionPtrType, functionPtr)           // Cast method address to the type
+        return call(callee.descriptor, function, args, resultLifetime)
     }
 
     //-------------------------------------------------------------------------//
