@@ -72,7 +72,7 @@ class KonanConfig(val project: Project, val configuration: CompilerConfiguration
 
     val moduleId: String
         // This is a decision we could change
-        get() = outputName
+        get() = configuration.get(KonanConfigKeys.MODULE_NAME) ?: outputName
 
     private val libraryNames: List<String>
         get() {

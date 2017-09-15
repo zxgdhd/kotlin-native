@@ -55,39 +55,50 @@ import org.jetbrains.kotlin.types.typeUtil.isUnit
 
 
 internal fun emitLLVM(context: Context) {
-        val irModule = context.irModule!!
+    val irModule = context.irModule!!
 
-        // Note that we don't set module target explicitly.
-        // It is determined by the target of runtime.bc
-        // (see Llvm class in ContextUtils)
-        // Which in turn is determined by the clang flags
-        // used to compile runtime.bc.
-        val llvmModule = LLVMModuleCreateWithName("out")!! // TODO: dispose
-        context.llvmModule = llvmModule
-        context.debugInfo.builder = DICreateBuilder(llvmModule)
-        context.llvmDeclarations = createLlvmDeclarations(context)
+    // Note that we don't set module target explicitly.
+    // It is determined by the target of runtime.bc
+    // (see Llvm class in ContextUtils)
+    // Which in turn is determined by the clang flags
+    // used to compile runtime.bc.
+    val llvmModule = LLVMModuleCreateWithName("out")!! // TODO: dispose
+    context.llvmModule = llvmModule
+    context.debugInfo.builder = DICreateBuilder(llvmModule)
+    context.llvmDeclarations = createLlvmDeclarations(context)
 
-        val phaser = PhaseManager(context)
+    val phaser = PhaseManager(context)
 
-        phaser.phase(KonanPhase.RTTI) {
-            irModule.acceptVoid(RTTIGeneratorVisitor(context))
-        }
+    phaser.phase(KonanPhase.RTTI) {
+        irModule.acceptVoid(RTTIGeneratorVisitor(context))
+    }
 
-        generateDebugInfoHeader(context)
+    generateDebugInfoHeader(context)
 
-        val lifetimes = mutableMapOf<IrElement, Lifetime>()
-        val codegenVisitor = CodeGeneratorVisitor(context, lifetimes)
-        phaser.phase(KonanPhase.ESCAPE_ANALYSIS) {
-            EscapeAnalysis.computeLifetimes(irModule, context, codegenVisitor.codegen, lifetimes)
-        }
+    var devirtualizationAnalysisResult: Devirtualization.DevirtualizationAnalysisResult? = null
+    phaser.phase(KonanPhase.DEVIRTUALIZATION) {
+        devirtualizationAnalysisResult = Devirtualization.analyze(irModule, context)
+    }
 
-        phaser.phase(KonanPhase.CODEGEN) {
-            irModule.acceptVoid(codegenVisitor)
-        }
+    val lifetimes = mutableMapOf<IrElement, Lifetime>()
+    val codegenVisitor = CodeGeneratorVisitor(context, lifetimes)
+    phaser.phase(KonanPhase.ESCAPE_ANALYSIS) {
+        EscapeAnalysis.computeLifetimes(irModule, context, codegenVisitor.codegen, lifetimes)
+    }
 
-        if (context.shouldContainDebugInfo()) {
-            DIFinalize(context.debugInfo.builder)
-        }
+    phaser.phase(KonanPhase.CODEGEN) {
+        codegenVisitor.codegen.staticData.placeGlobalConstArray("private_functions_${irModule.descriptor.name}", int8TypePtr,
+                devirtualizationAnalysisResult!!.privateFunctions.map { constPointer(codegenVisitor.codegen.functionLlvmValue(it)).bitcast(int8TypePtr) },
+                isExported = true
+        )
+        Devirtualization.devirtualize(irModule, context, devirtualizationAnalysisResult!!.devirtualizedCallSites)
+
+        irModule.acceptVoid(codegenVisitor)
+    }
+
+    if (context.shouldContainDebugInfo()) {
+        DIFinalize(context.debugInfo.builder)
+    }
 }
 
 internal fun produceOutput(context: Context) {
@@ -328,15 +339,6 @@ internal class CodeGeneratorVisitor(val context: Context, val lifetimes: Map<IrE
     //-------------------------------------------------------------------------//
     override fun visitModuleFragment(declaration: IrModuleFragment) {
         context.log{"visitModule                    : ${ir2string(declaration)}"}
-
-        val devirtualizationAnalysisResult = Devirtualization.analyze(declaration, context)
-
-        println("private_functions_${declaration.descriptor.name}")
-        codegen.staticData.placeGlobalConstArray("private_functions_${declaration.descriptor.name}", int8TypePtr,
-                devirtualizationAnalysisResult.privateFunctions.map { constPointer(codegen.functionLlvmValue(it)).bitcast(int8TypePtr) },
-                isExported = true
-        )
-        Devirtualization.devirtualize(declaration, context, devirtualizationAnalysisResult.devirtualizedCallSites)
 
         declaration.acceptChildrenVoid(this)
         appendLlvmUsed(context.llvm.usedFunctions)
@@ -1894,7 +1896,12 @@ internal class CodeGeneratorVisitor(val context: Context, val lifetimes: Map<IrE
 
     private fun evaluatePrivateFunctionCall(callee: IrPrivateFunctionCall, args: List<LLVMValueRef>,
                                             resultLifetime: Lifetime): LLVMValueRef {
-        val functionsList    = codegen.importGlobal("private_functions_${callee.moduleName}", LLVMArrayType(int8TypePtr, callee.totalFunctions)!!)
+        val functionsListName = "private_functions_${callee.moduleName}"
+        val functionsList    =
+                if (callee.moduleName == context.irModule!!.descriptor.name.asString())
+                    LLVMGetNamedGlobal(context.llvmModule, functionsListName)
+                else
+                    codegen.importGlobal(functionsListName, LLVMArrayType(int8TypePtr, callee.totalFunctions)!!)
         val functionIndex    = LLVMConstInt(LLVMInt32Type(), callee.functionIndex.toLong(), 1)!!
         val functionPlacePtr = LLVMBuildGEP(functionGenerationContext.builder, functionsList, cValuesOf(kImmZero, functionIndex), 2, "")!!
         //val functionPlacePtr = functionGenerationContext.gep(functionsList, functionIndex, "")

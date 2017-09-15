@@ -53,6 +53,8 @@ class KonanConfigKeys {
                 = CompilerConfigurationKey.create("generate metadata")
         val MODULE_KIND: CompilerConfigurationKey<ModuleKind> 
                 = CompilerConfigurationKey.create("module kind")
+        val MODULE_NAME: CompilerConfigurationKey<String?>
+                = CompilerConfigurationKey.create("module name")
         val NATIVE_LIBRARY_FILES: CompilerConfigurationKey<List<String>>
                 = CompilerConfigurationKey.create("native library file paths")
         val NOMAIN: CompilerConfigurationKey<Boolean> 

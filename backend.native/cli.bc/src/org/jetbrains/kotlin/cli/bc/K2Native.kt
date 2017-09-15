@@ -106,6 +106,7 @@ class K2Native : CLICompiler<K2NativeCompilerArguments>() {
                 arguments.mainPackage ?.let{ put(ENTRY, it) }
                 arguments.manifestFile ?.let{ put(MANIFEST_FILE, it) }
                 arguments.runtimeFile ?.let{ put(RUNTIME_FILE, it) }
+                arguments.moduleName ?.let{ put(MODULE_NAME, it) }
                 arguments.propertyFile ?.let{ put(PROPERTY_FILE, it) }
 
                 put(LIST_TARGETS, arguments.listTargets)

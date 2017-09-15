@@ -18,16 +18,14 @@ package org.jetbrains.kotlin.backend.konan
 
 import org.jetbrains.kotlin.backend.common.IrElementTransformerVoidWithContext
 import org.jetbrains.kotlin.backend.common.descriptors.allParameters
+import org.jetbrains.kotlin.backend.common.descriptors.isSuspend
 import org.jetbrains.kotlin.backend.common.ir.ir2string
 import org.jetbrains.kotlin.backend.common.ir.ir2stringWhole
 import org.jetbrains.kotlin.backend.common.lower.createIrBuilder
 import org.jetbrains.kotlin.backend.common.peek
 import org.jetbrains.kotlin.backend.common.pop
 import org.jetbrains.kotlin.backend.common.push
-import org.jetbrains.kotlin.backend.konan.descriptors.isAbstract
-import org.jetbrains.kotlin.backend.konan.descriptors.isInterface
-import org.jetbrains.kotlin.backend.konan.descriptors.isIntrinsic
-import org.jetbrains.kotlin.backend.konan.descriptors.target
+import org.jetbrains.kotlin.backend.konan.descriptors.*
 import org.jetbrains.kotlin.backend.konan.ir.IrPrivateFunctionCallImpl
 import org.jetbrains.kotlin.backend.konan.ir.IrReturnableBlock
 import org.jetbrains.kotlin.backend.konan.ir.IrSuspendableExpression
@@ -46,6 +44,7 @@ import org.jetbrains.kotlin.ir.util.getArguments
 import org.jetbrains.kotlin.ir.visitors.*
 import org.jetbrains.kotlin.konan.target.CompilerOutputKind
 import org.jetbrains.kotlin.name.FqName
+import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.resolve.OverridingUtil
 import org.jetbrains.kotlin.resolve.descriptorUtil.fqNameSafe
 import org.jetbrains.kotlin.resolve.descriptorUtil.module
@@ -113,7 +112,11 @@ internal object Devirtualization {
                                             val suspendableExpressionValues: Map<IrSuspendableExpression, List<IrSuspensionPoint>>) {
 
         fun forEachValue(expression: IrExpression, block: (IrExpression) -> Unit) {
-            //if (expression.type.isUnit() || expression.type.isNothing()) return
+            if ((expression.type.isUnit() || expression.type.isNothing()) && expression !is IrGetObjectValue) {
+                block(IrGetObjectValueImpl(expression.startOffset, expression.endOffset,
+                        expression.type, (expression.type.constructor.declarationDescriptor as ClassDescriptor)))
+                return
+            }
             when (expression) {
                 is IrReturnableBlock -> returnableBlockValues[expression]!!.forEach { forEachValue(it, block) }
 
@@ -159,34 +162,30 @@ internal object Devirtualization {
 
                 is IrGetObjectValue -> block(expression)
 
-                is IrSetField -> {}
-                is IrSetVariable -> {}
-                is IrReturn -> {}
-                is IrBreakContinue -> {}
-                is IrThrow -> {}
+                is IrFunctionReference -> block(expression)
 
                 else -> TODO("Unknown expression: ${ir2string(expression)}")
             }
         }
     }
 
-    private fun KotlinType.erasure(): KotlinType {
-        val descriptor = this.constructor.declarationDescriptor
-        return when (descriptor) {
-            is ClassDescriptor -> this
+    private fun computeErasure(type: KotlinType, erasure: MutableList<KotlinType>) {
+        val descriptor = type.constructor.declarationDescriptor
+        when (descriptor) {
+            is ClassDescriptor -> erasure += type.makeNotNullable()
             is TypeParameterDescriptor -> {
-                val upperBound = descriptor.upperBounds.singleOrNull() ?:
-                        TODO("$descriptor : ${descriptor.upperBounds}")
-
-                if (this.isMarkedNullable) {
-                    // `T?`
-                    upperBound.erasure().makeNullable()
-                } else {
-                    upperBound.erasure()
+                descriptor.upperBounds.forEach {
+                    computeErasure(it, erasure)
                 }
             }
             else -> TODO(this.toString())
         }
+    }
+
+    private fun KotlinType.erasure(): List<KotlinType> {
+        val result = mutableListOf<KotlinType>()
+        computeErasure(this, result)
+        return result
     }
 
     private fun MemberScope.getOverridingOf(function: FunctionDescriptor) = when (function) {
@@ -319,7 +318,7 @@ internal object Devirtualization {
                 }
 
                 override fun toString(): String {
-                    return "PrivateFunction(index=$index)"
+                    return "PrivateFunction(index=$index, name='$name')"
                 }
             }
         }
@@ -373,6 +372,8 @@ internal object Devirtualization {
 
     private fun FunctionDescriptor.externalOrIntrinsic() = isExternal || isIntrinsic || (this is IrBuiltinOperatorDescriptorBase)
 
+    private fun ClassDescriptor.isFinal() = modality == Modality.FINAL && kind != ClassKind.ENUM_CLASS
+
     private class SymbolTable(val context: Context, val irModule: IrModuleFragment, val module: FunctionTemplateBody.Module) {
         val classMap = mutableMapOf<ClassDescriptor, FunctionTemplateBody.Type>()
         val functionMap = mutableMapOf<CallableDescriptor, FunctionTemplateBody.FunctionId>()
@@ -410,7 +411,7 @@ internal object Devirtualization {
 
             classMap[descriptor]?.let { return it }
 
-            val isFinal = descriptor.modality == Modality.FINAL && descriptor.kind != ClassKind.ENUM_CLASS
+            val isFinal = descriptor.isFinal()
             val isAbstract = descriptor.isAbstract()
             val type = if (descriptor.isExported())
                 FunctionTemplateBody.Type.Public(name, isFinal, isAbstract)
@@ -434,7 +435,7 @@ internal object Devirtualization {
         }
 
         fun mapType(type: KotlinType) =
-                mapClass(type.erasure().makeNotNullable().constructor.declarationDescriptor as ClassDescriptor)
+                mapClass(type.erasure().single().constructor.declarationDescriptor as ClassDescriptor)
 
         fun mapFunction(descriptor: CallableDescriptor) = descriptor.original.let {
             functionMap.getOrPut(it) {
@@ -447,8 +448,10 @@ internal object Devirtualization {
                             FunctionTemplateBody.FunctionId.External(it.symbolName)
                         else {
                             val isAbstract = it.modality == Modality.ABSTRACT
-                            val placeToFunctionsTable = !isAbstract && it.isOverridableOrOverrides
-                                    && (it.containingDeclaration as ClassDescriptor).kind != ClassKind.ANNOTATION_CLASS
+                            val classDescriptor = it.containingDeclaration as? ClassDescriptor
+                            val placeToFunctionsTable = !isAbstract && it !is ConstructorDescriptor && classDescriptor != null
+                                    && classDescriptor.kind != ClassKind.ANNOTATION_CLASS
+                                    && (it.isOverridableOrOverrides || it.name.asString().contains("<bridge-") || !classDescriptor.isFinal())
                             if (placeToFunctionsTable)
                                 ++module.numberOfFunctions
                             val symbolTableIndex = if (!placeToFunctionsTable) -1 else couldBeCalledVirtuallyIndex++
@@ -487,10 +490,24 @@ internal object Devirtualization {
                                   expressions: List<IrExpression>,
                                   returnValues: List<IrExpression>) {
 
+                private val coroutineImplDescriptor = context.getInternalClass("CoroutineImpl")
+                private val doResumeFunctionDescriptor = coroutineImplDescriptor.unsubstitutedMemberScope
+                        .getContributedFunctions(Name.identifier("doResume"), NoLookupLocation.FROM_BACKEND).single()
+                private val getContinuationSymbol = context.ir.symbols.getContinuation
+
+                private val allParameters = (descriptor as? FunctionDescriptor)?.allParameters ?: emptyList()
                 private val templateParameters =
-                        ((descriptor as? FunctionDescriptor)?.allParameters ?: emptyList())
-                                .withIndex()
-                                .associateBy({ it.value }, { FunctionTemplateBody.Node.Parameter(it.index) })
+                        allParameters.withIndex().associateBy({ it.value }, { FunctionTemplateBody.Node.Parameter(it.index) })
+
+                private val continuationParameter =
+                        if (descriptor.isSuspend)
+                            FunctionTemplateBody.Node.Parameter(allParameters.size)
+                        else {
+                            if (doResumeFunctionDescriptor in descriptor.overriddenDescriptors)
+                                templateParameters[descriptor.dispatchReceiverParameter!!]
+                            else null
+                        }
+                private fun getContinuation() = continuationParameter ?: error("Function $descriptor has no continuation parameter")
 
                 private val nodes = mutableMapOf<IrExpression, FunctionTemplateBody.Node>()
                 private val variables = variableValues.elementData.keys.associateBy(
@@ -511,7 +528,7 @@ internal object Devirtualization {
                     }
                     val allNodes = (nodes.values + variables.values + templateParameters.values + returns).distinct().toList()
                     template = FunctionTemplate(symbolTable.mapFunction(descriptor),
-                            templateParameters.size, FunctionTemplateBody(allNodes, returns))
+                            templateParameters.size + if (descriptor.isSuspend) 1 else 0, FunctionTemplateBody(allNodes, returns))
                 }
 
                 private fun expressionToEdge(expression: IrExpression) =
@@ -549,57 +566,68 @@ internal object Devirtualization {
                                     is IrGetValue -> getNode(value)
 
                                     is IrVararg,
-                                    is IrConst<*> -> FunctionTemplateBody.Node.Const(symbolTable.mapType(value.type))
+                                    is IrConst<*>,
+                                    is IrFunctionReference -> FunctionTemplateBody.Node.Const(symbolTable.mapType(value.type))
 
                                     is IrGetObjectValue -> FunctionTemplateBody.Node.Singleton(symbolTable.mapType(value.type))
 
                                     is IrCall -> {
-                                        val arguments = value.getArguments()
-                                        val callee = value.descriptor.target
-                                        if (callee is ConstructorDescriptor)
-                                            FunctionTemplateBody.Node.NewObject(
-                                                    symbolTable.mapFunction(callee),
-                                                    arguments.map { expressionToEdge(it.second) },
-                                                    symbolTable.mapClass(callee.constructedClass)
-                                            )
-                                        else {
-                                            if (callee.isOverridable && value.superQualifier == null) {
-                                                val owner = callee.containingDeclaration as ClassDescriptor
-                                                val vTableBuilder = context.getVtableBuilder(owner)
-                                                if (owner.isInterface) {
-                                                    FunctionTemplateBody.Node.ItableCall(
-                                                            symbolTable.mapFunction(callee),
-                                                            symbolTable.mapClass(owner),
-                                                            callee.functionName.localHash.value,
-                                                            arguments.map { expressionToEdge(it.second) },
-                                                            symbolTable.mapType(callee.returnType!!),
-                                                            value
-                                                    )
-                                                } else {
-                                                    val vtableIndex = vTableBuilder.vtableIndex(callee)
-                                                    assert(vtableIndex >= 0, { "Unable to find function $callee in vTable of $owner" })
-                                                    FunctionTemplateBody.Node.VtableCall(
-                                                            symbolTable.mapFunction(callee),
-                                                            symbolTable.mapClass(owner),
-                                                            vtableIndex,
-                                                            arguments.map { expressionToEdge(it.second) },
-                                                            symbolTable.mapType(callee.returnType!!),
-                                                            value
-                                                    )
-                                                }
-                                            }
-                                            else {
-                                                val actualCallee = value.superQualifier.let {
-                                                    if (it == null)
-                                                        callee
-                                                    else
-                                                        it.unsubstitutedMemberScope.getOverridingOf(callee)?.target ?: callee
-                                                }
-                                                FunctionTemplateBody.Node.StaticCall(
-                                                        symbolTable.mapFunction(actualCallee),
-                                                        arguments.map { expressionToEdge(it.second) },
-                                                        symbolTable.mapType(actualCallee.returnType!!)
+                                        if (value.symbol == getContinuationSymbol) {
+                                            getContinuation()
+                                        } else {
+                                            val callee = value.descriptor.target
+                                            val arguments = value.getArguments()
+                                                    .map { expressionToEdge(it.second) }
+                                                    .let {
+                                                        if (callee.isSuspend)
+                                                            it + FunctionTemplateBody.Edge(getContinuation(), null)
+                                                        else
+                                                            it
+                                                    }
+                                            if (callee is ConstructorDescriptor) {
+                                                FunctionTemplateBody.Node.NewObject(
+                                                        symbolTable.mapFunction(callee),
+                                                        arguments,
+                                                        symbolTable.mapClass(callee.constructedClass)
                                                 )
+                                            } else {
+                                                if (callee.isOverridable && value.superQualifier == null) {
+                                                    val owner = callee.containingDeclaration as ClassDescriptor
+                                                    val vTableBuilder = context.getVtableBuilder(owner)
+                                                    if (owner.isInterface) {
+                                                        FunctionTemplateBody.Node.ItableCall(
+                                                                symbolTable.mapFunction(callee),
+                                                                symbolTable.mapClass(owner),
+                                                                callee.functionName.localHash.value,
+                                                                arguments,
+                                                                symbolTable.mapType(callee.returnType!!),
+                                                                value
+                                                        )
+                                                    } else {
+                                                        val vtableIndex = vTableBuilder.vtableIndex(callee)
+                                                        assert(vtableIndex >= 0, { "Unable to find function $callee in vTable of $owner" })
+                                                        FunctionTemplateBody.Node.VtableCall(
+                                                                symbolTable.mapFunction(callee),
+                                                                symbolTable.mapClass(owner),
+                                                                vtableIndex,
+                                                                arguments,
+                                                                symbolTable.mapType(callee.returnType!!),
+                                                                value
+                                                        )
+                                                    }
+                                                } else {
+                                                    val actualCallee = value.superQualifier.let {
+                                                        if (it == null)
+                                                            callee
+                                                        else
+                                                            it.unsubstitutedMemberScope.getOverridingOf(callee)?.target ?: callee
+                                                    }
+                                                    FunctionTemplateBody.Node.StaticCall(
+                                                            symbolTable.mapFunction(actualCallee),
+                                                            arguments,
+                                                            symbolTable.mapType(actualCallee.returnType!!)
+                                                    )
+                                                }
                                             }
                                         }
                                     }
@@ -986,7 +1014,8 @@ internal object Devirtualization {
             val nodes = mutableListOf<Node>()
             val voidNode = Node.Const(nextId(), "Void").also { nodes.add(it) }
             val functions = mutableMapOf<FunctionTemplateBody.FunctionId, Function>()
-            val classes = mutableMapOf<FunctionTemplateBody.Type.Declared, Node>()
+            val concreteClasses = mutableMapOf<FunctionTemplateBody.Type.Declared, Node>()
+            val virtualClasses = mutableMapOf<FunctionTemplateBody.Type.Declared, Node>()
             val fields = mutableMapOf<FunctionTemplateBody.Field, Node>() // Do not distinguish receivers.
             val virtualCallSiteReceivers = mutableMapOf<IrCall, Triple<Node, List<DevirtualizedCallee>, FunctionTemplateBody.FunctionId>>()
 
@@ -1121,7 +1150,8 @@ internal object Devirtualization {
 
         private fun FunctionTemplateBody.Type.resolved(): FunctionTemplateBody.Type.Declared {
             if (this is FunctionTemplateBody.Type.Declared) return this
-            return externalAnalysisResult.publicTypes[(this as FunctionTemplateBody.Type.External).name]!!
+            val name = (this as FunctionTemplateBody.Type.External).name
+            return externalAnalysisResult.publicTypes[name] ?: error("Unable to resolve exported type $name")
         }
 
         private fun FunctionTemplateBody.FunctionId.resolved(): FunctionTemplateBody.FunctionId {
@@ -1179,18 +1209,20 @@ internal object Devirtualization {
             val rootSet = getRootSet(irModule)
             rootSet.filterIsInstance<FunctionDescriptor>()
                     .forEach {
-                        val functionId = symbolTable.mapFunction(it)
+                        val functionId = symbolTable.mapFunction(it).resolved()
                         if (constraintGraph.functions[functionId] == null)
-                            println("BUGBUGBUG: $it")
+                            println("BUGBUGBUG: $it, $functionId")
                         val function = constraintGraph.functions[functionId]!!
-                        it.allParameters.withIndex().forEach {
-                            val parameterType = symbolTable.mapType(it.value.type).resolved()
-                            val node = constraintGraph.classes.getOrPut(parameterType) {
-                                ConstraintGraph.Node.Const(constraintGraph.nextId(), "Class\$$parameterType", ConstraintGraph.Type.virtual(parameterType)).also {
-                                    constraintGraph.addNode(it)
+                        it.allParameters.forEachIndexed { index, parameter ->
+                            parameter.type.erasure().forEach {
+                                val parameterType = symbolTable.mapClass(it.constructor.declarationDescriptor as ClassDescriptor).resolved()
+                                val node = constraintGraph.virtualClasses.getOrPut(parameterType) {
+                                    ConstraintGraph.Node.Const(constraintGraph.nextId(), "Class\$$parameterType", ConstraintGraph.Type.virtual(parameterType)).also {
+                                        constraintGraph.addNode(it)
+                                    }
                                 }
+                                node.addEdge(function.parameters[index])
                             }
-                            node.addEdge(function.parameters[it.index])
                         }
                     }
             if (DEBUG > 0) {
@@ -1255,14 +1287,15 @@ internal object Devirtualization {
                         if (nodesMap[it] == null) {
                             println("BUGBUGBUG: $it")
                         }
-                        val node = nodesMap[it]!!
-                        if (it.callSite == null) return@forEach
-                        val receiver = constraintGraph.virtualCallSiteReceivers[it.callSite]
-                        if (receiver == null || receiver.first.types.isEmpty() || receiver.first.types.any { it.kind == ConstraintGraph.TypeKind.VIRTUAL })
+                        assert (nodesMap[it] != null, { "Node for virtual call $it has not been built" })
+                        val callSite = it.callSite ?: return@forEach
+                        val receiver = constraintGraph.virtualCallSiteReceivers[callSite]
+                        if (receiver == null || receiver.first.types.isEmpty()
+                                || receiver.first.types.any { it.kind == ConstraintGraph.TypeKind.VIRTUAL })
                             return@forEach
                         val possibleReceivers = receiver.first.types.filterNot { it.type == nothing }
                         val map = receiver.second.associateBy({ it.receiverType }, { it })
-                        result.put(it.callSite, DevirtualizedCallSite(possibleReceivers.map {
+                        result.put(callSite, DevirtualizedCallSite(possibleReceivers.map {
                             if (map[it.type] == null) {
                                 println("BUGBUGBUG: $it, ${it.type.isFinal}, ${it.type.isAbstract}")
                                 println(receiver.first)
@@ -1271,7 +1304,12 @@ internal object Devirtualization {
                                 println("Possible receiver types:")
                                 map.keys.forEach { println("    $it") }
                             }
-                            map[it.type]!!
+                            val devirtualizedCallee = map[it.type]!!
+                            val callee = devirtualizedCallee.callee
+                            if (callee is FunctionTemplateBody.FunctionId.Declared && callee.symbolTableIndex < 0)
+                                error("Function ${devirtualizedCallee.receiverType}.$callee cannot be called virtually," +
+                                        " but actually is at call site: ${ir2stringWhole(callSite)}")
+                            devirtualizedCallee
                         }) to receiver.third)
                     }
             if (DEBUG > 0) {
@@ -1322,7 +1360,8 @@ internal object Devirtualization {
         private fun buildFunctionConstraintGraph(id: FunctionTemplateBody.FunctionId,
                                                  nodes: MutableMap<FunctionTemplateBody.Node, ConstraintGraph.Node>,
                                                  variables: MutableMap<FunctionTemplateBody.Node.Variable, ConstraintGraph.Node>,
-                                                 instantiatingClasses: Collection<FunctionTemplateBody.Type.Declared>): ConstraintGraph.Function? {
+                                                 instantiatingClasses: Collection<FunctionTemplateBody.Type.Declared>)
+                : ConstraintGraph.Function? {
             if (id is FunctionTemplateBody.FunctionId.External) return null
             constraintGraph.functions[id]?.let { return it }
 
@@ -1373,7 +1412,7 @@ internal object Devirtualization {
                     edgeToConstraintNode(function, edge, functionNodesMap, variables, instantiatingClasses)
 
             fun doCall(callee: ConstraintGraph.Function, arguments: List<Any>): ConstraintGraph.Node {
-                assert(callee.parameters.size == arguments.size, { "" })
+                assert(callee.parameters.size == arguments.size, { "Function ${callee.id} takes ${callee.parameters.size} but caller ${function.id} provided ${arguments.size}" })
                 callee.parameters.forEachIndexed { index, parameter ->
                     val argument = arguments[index].let {
                         when (it) {
@@ -1394,7 +1433,7 @@ internal object Devirtualization {
                 return if (calleeConstraintGraph != null)
                     doCall(calleeConstraintGraph, arguments)
                 else {
-                    constraintGraph.classes.getOrPut(returnType) {
+                    constraintGraph.concreteClasses.getOrPut(returnType) {
                         ConstraintGraph.Node.Const(constraintGraph.nextId(), "Class\$$returnType", ConstraintGraph.Type.concrete(returnType)).also {
                             constraintGraph.addNode(it)
                         }
@@ -1431,7 +1470,7 @@ internal object Devirtualization {
 
                     is FunctionTemplateBody.Node.NewObject -> {
                         val returnType = node.returnType.resolved()
-                        val instanceNode = constraintGraph.classes.getOrPut(returnType) {
+                        val instanceNode = constraintGraph.concreteClasses.getOrPut(returnType) {
                             val instanceType = ConstraintGraph.Type.concrete(returnType)
                             ConstraintGraph.Node.Const(constraintGraph.nextId(), "Class\$${node.returnType}", instanceType).also {
                                 constraintGraph.addNode(it)
@@ -1507,7 +1546,7 @@ internal object Devirtualization {
 
                     is FunctionTemplateBody.Node.Singleton -> {
                         val type = node.type.resolved()
-                        constraintGraph.classes.getOrPut(type) {
+                        constraintGraph.concreteClasses.getOrPut(type) {
                             ConstraintGraph.Node.Const(constraintGraph.nextId(), "Class\$$type", ConstraintGraph.Type.concrete(type)).also {
                                 constraintGraph.addNode(it)
                             }
@@ -1558,12 +1597,9 @@ internal object Devirtualization {
     internal fun analyze(irModule: IrModuleFragment, context: Context) : DevirtualizationAnalysisResult {
         val intraproceduralAnalysisResult = IntraproceduralAnalysis(context).analyze(irModule)
 
-        val isStdlib = context.config.configuration[KonanConfigKeys.NOSTDLIB] == true
-
-        if (isStdlib) {
-            val moduleBuilder = context.devirtualizationAnalysisResult.value
-            val symbolTableBuilder = ModuleDevirtualizationAnalysisResult.SymbolTable.newBuilder()
-            val symbolTable = intraproceduralAnalysisResult.symbolTable
+        val moduleBuilder = context.devirtualizationAnalysisResult.value
+        val symbolTableBuilder = ModuleDevirtualizationAnalysisResult.SymbolTable.newBuilder()
+        val symbolTable = intraproceduralAnalysisResult.symbolTable
 //            val alltypes = symbolTable.functionMap.entries.toTypedArray()
 //            println(symbolTable.privateFunIndex)
 //            for (i in alltypes.indices)
@@ -1572,206 +1608,205 @@ internal object Devirtualization {
 //                        println("${alltypes[i].key} = ${alltypes[j].key}")
 //                        println("${alltypes[i].value} = ${alltypes[j].value}")
 //                    }
-            val typeMap = symbolTable.classMap.values.withIndex().associateBy({ it.value }, { it.index })
-            val functionIdMap = symbolTable.functionMap.values.withIndex().associateBy({ it.value }, { it.index })
-            println("TYPES: ${typeMap.size}, FUNCTIONS: ${functionIdMap.size}, PRIVATE FUNCTIONS: ${functionIdMap.keys.count { it is FunctionTemplateBody.FunctionId.Private }}, FUNCTION TABLE SIZE: ${symbolTable.couldBeCalledVirtuallyIndex}")
-            for (type in typeMap.entries.sortedBy { it.value }.map { it.key }) {
+        val typeMap = symbolTable.classMap.values.withIndex().associateBy({ it.value }, { it.index })
+        val functionIdMap = symbolTable.functionMap.values.withIndex().associateBy({ it.value }, { it.index })
+        println("TYPES: ${typeMap.size}, FUNCTIONS: ${functionIdMap.size}, PRIVATE FUNCTIONS: ${functionIdMap.keys.count { it is FunctionTemplateBody.FunctionId.Private }}, FUNCTION TABLE SIZE: ${symbolTable.couldBeCalledVirtuallyIndex}")
+        for (type in typeMap.entries.sortedBy { it.value }.map { it.key }) {
 
-                fun buildTypeIntestines(type: FunctionTemplateBody.Type.Declared): ModuleDevirtualizationAnalysisResult.DeclaredType.Builder {
-                    val result = ModuleDevirtualizationAnalysisResult.DeclaredType.newBuilder()
-                    result.isFinal = type.isFinal
-                    result.isAbstract = type.isAbstract
-                    result.addAllSuperTypes(type.superTypes.map { typeMap[it]!! })
-                    result.addAllVtable(type.vtable.map { functionIdMap[it]!! })
-                    type.itable.forEach { hash, functionId ->
-                        val itableSlotBuilder = ModuleDevirtualizationAnalysisResult.ItableSlot.newBuilder()
-                        itableSlotBuilder.hash = hash
-                        itableSlotBuilder.impl = functionIdMap[functionId]!!
-                        result.addItable(itableSlotBuilder)
-                    }
-                    return result
+            fun buildTypeIntestines(type: FunctionTemplateBody.Type.Declared): ModuleDevirtualizationAnalysisResult.DeclaredType.Builder {
+                val result = ModuleDevirtualizationAnalysisResult.DeclaredType.newBuilder()
+                result.isFinal = type.isFinal
+                result.isAbstract = type.isAbstract
+                result.addAllSuperTypes(type.superTypes.map { typeMap[it]!! })
+                result.addAllVtable(type.vtable.map { functionIdMap[it]!! })
+                type.itable.forEach { hash, functionId ->
+                    val itableSlotBuilder = ModuleDevirtualizationAnalysisResult.ItableSlot.newBuilder()
+                    itableSlotBuilder.hash = hash
+                    itableSlotBuilder.impl = functionIdMap[functionId]!!
+                    result.addItable(itableSlotBuilder)
                 }
-
-                val typeBuilder = ModuleDevirtualizationAnalysisResult.Type.newBuilder()
-                when (type) {
-                    is FunctionTemplateBody.Type.External -> {
-                        val externalTypeBuilder = ModuleDevirtualizationAnalysisResult.ExternalType.newBuilder()
-                        externalTypeBuilder.name = type.name
-                        typeBuilder.setExternal(externalTypeBuilder)
-                    }
-
-                    is FunctionTemplateBody.Type.Public -> {
-                        val publicTypeBuilder = ModuleDevirtualizationAnalysisResult.PublicType.newBuilder()
-                        publicTypeBuilder.name = type.name
-                        publicTypeBuilder.setIntestines(buildTypeIntestines(type))
-                        typeBuilder.setPublic(publicTypeBuilder)
-                    }
-
-                    is FunctionTemplateBody.Type.Private -> {
-                        val privateTypeBuilder = ModuleDevirtualizationAnalysisResult.PrivateType.newBuilder()
-                        privateTypeBuilder.name = type.name
-                        privateTypeBuilder.index = type.index
-                        privateTypeBuilder.setIntestines(buildTypeIntestines(type))
-                        typeBuilder.setPrivate(privateTypeBuilder)
-                    }
-                }
-                symbolTableBuilder.addTypes(typeBuilder)
+                return result
             }
-            for (functionId in functionIdMap.entries.sortedBy { it.value }.map { it.key }) {
-                val functionIdBuilder = ModuleDevirtualizationAnalysisResult.FunctionId.newBuilder()
-                when (functionId) {
-                    is FunctionTemplateBody.FunctionId.External -> {
-                        val externalFunctionIdBuilder = ModuleDevirtualizationAnalysisResult.ExternalFunctionId.newBuilder()
-                        externalFunctionIdBuilder.name = functionId.name
-                        functionIdBuilder.setExternal(externalFunctionIdBuilder)
-                    }
 
-                    is FunctionTemplateBody.FunctionId.Public -> {
-                        val publicFunctionIdBuilder = ModuleDevirtualizationAnalysisResult.PublicFunctionId.newBuilder()
-                        publicFunctionIdBuilder.name = functionId.name
-                        publicFunctionIdBuilder.index = functionId.symbolTableIndex
-                        functionIdBuilder.setPublic(publicFunctionIdBuilder)
-                    }
-
-                    is FunctionTemplateBody.FunctionId.Private -> {
-                        val privateFunctionIdBuilder = ModuleDevirtualizationAnalysisResult.PrivateFunctionId.newBuilder()
-                        privateFunctionIdBuilder.name = functionId.name
-                        privateFunctionIdBuilder.index = functionId.symbolTableIndex
-                        functionIdBuilder.setPrivate(privateFunctionIdBuilder)
-                    }
+            val typeBuilder = ModuleDevirtualizationAnalysisResult.Type.newBuilder()
+            when (type) {
+                is FunctionTemplateBody.Type.External -> {
+                    val externalTypeBuilder = ModuleDevirtualizationAnalysisResult.ExternalType.newBuilder()
+                    externalTypeBuilder.name = type.name
+                    typeBuilder.setExternal(externalTypeBuilder)
                 }
-                symbolTableBuilder.addFunctionIds(functionIdBuilder)
-            }
-            moduleBuilder.setSymbolTable(symbolTableBuilder)
-            for (functionTemplate in intraproceduralAnalysisResult.functionTemplates.values) {
-                val functionTemplateBuilder = ModuleDevirtualizationAnalysisResult.FunctionTemplate.newBuilder()
-                functionTemplateBuilder.id = functionIdMap[functionTemplate.id]!!
-                functionTemplateBuilder.numberOfParameters = functionTemplate.numberOfParameters
-                val bodyBuilder = ModuleDevirtualizationAnalysisResult.FunctionTemplateBody.newBuilder()
-                val body = functionTemplate.body
-                val nodeMap = body.nodes.withIndex().associateBy({ it.value }, { it.index })
 
-                fun buildEdge(edge: FunctionTemplateBody.Edge): ModuleDevirtualizationAnalysisResult.Edge.Builder {
-                    val result = ModuleDevirtualizationAnalysisResult.Edge.newBuilder()
+                is FunctionTemplateBody.Type.Public -> {
+                    val publicTypeBuilder = ModuleDevirtualizationAnalysisResult.PublicType.newBuilder()
+                    publicTypeBuilder.name = type.name
+                    publicTypeBuilder.setIntestines(buildTypeIntestines(type))
+                    typeBuilder.setPublic(publicTypeBuilder)
+                }
+
+                is FunctionTemplateBody.Type.Private -> {
+                    val privateTypeBuilder = ModuleDevirtualizationAnalysisResult.PrivateType.newBuilder()
+                    privateTypeBuilder.name = type.name
+                    privateTypeBuilder.index = type.index
+                    privateTypeBuilder.setIntestines(buildTypeIntestines(type))
+                    typeBuilder.setPrivate(privateTypeBuilder)
+                }
+            }
+            symbolTableBuilder.addTypes(typeBuilder)
+        }
+        for (functionId in functionIdMap.entries.sortedBy { it.value }.map { it.key }) {
+            val functionIdBuilder = ModuleDevirtualizationAnalysisResult.FunctionId.newBuilder()
+            when (functionId) {
+                is FunctionTemplateBody.FunctionId.External -> {
+                    val externalFunctionIdBuilder = ModuleDevirtualizationAnalysisResult.ExternalFunctionId.newBuilder()
+                    externalFunctionIdBuilder.name = functionId.name
+                    functionIdBuilder.setExternal(externalFunctionIdBuilder)
+                }
+
+                is FunctionTemplateBody.FunctionId.Public -> {
+                    val publicFunctionIdBuilder = ModuleDevirtualizationAnalysisResult.PublicFunctionId.newBuilder()
+                    publicFunctionIdBuilder.name = functionId.name
+                    publicFunctionIdBuilder.index = functionId.symbolTableIndex
+                    functionIdBuilder.setPublic(publicFunctionIdBuilder)
+                }
+
+                is FunctionTemplateBody.FunctionId.Private -> {
+                    val privateFunctionIdBuilder = ModuleDevirtualizationAnalysisResult.PrivateFunctionId.newBuilder()
+                    privateFunctionIdBuilder.name = functionId.name
+                    privateFunctionIdBuilder.index = functionId.symbolTableIndex
+                    functionIdBuilder.setPrivate(privateFunctionIdBuilder)
+                }
+            }
+            symbolTableBuilder.addFunctionIds(functionIdBuilder)
+        }
+        moduleBuilder.setSymbolTable(symbolTableBuilder)
+        for (functionTemplate in intraproceduralAnalysisResult.functionTemplates.values) {
+            val functionTemplateBuilder = ModuleDevirtualizationAnalysisResult.FunctionTemplate.newBuilder()
+            functionTemplateBuilder.id = functionIdMap[functionTemplate.id]!!
+            functionTemplateBuilder.numberOfParameters = functionTemplate.numberOfParameters
+            val bodyBuilder = ModuleDevirtualizationAnalysisResult.FunctionTemplateBody.newBuilder()
+            val body = functionTemplate.body
+            val nodeMap = body.nodes.withIndex().associateBy({ it.value }, { it.index })
+
+            fun buildEdge(edge: FunctionTemplateBody.Edge): ModuleDevirtualizationAnalysisResult.Edge.Builder {
+                val result = ModuleDevirtualizationAnalysisResult.Edge.newBuilder()
 //                    if (nodeMap[edge.node] == null) {
 //                        println("ZUGZUGZUG")
 //                        functionTemplate.printNode(edge.node, nodeMap)
 //                        println()
 //                        functionTemplate.debugOutput()
 //                    }
-                    result.node = nodeMap[edge.node]!!
-                    edge.castToType?.let { result.castToType = typeMap[it]!! }
-                    return result
-                }
-
-                fun buildCall(call: FunctionTemplateBody.Node.Call): ModuleDevirtualizationAnalysisResult.Call.Builder {
-                    val result = ModuleDevirtualizationAnalysisResult.Call.newBuilder()
-                    result.callee = functionIdMap[call.callee]!!
-                    result.returnType = typeMap[call.returnType]!!
-                    call.arguments.forEach {
-                        result.addArguments(buildEdge(it))
-                    }
-                    return result
-                }
-
-                fun buildVirtualCall(virtualCall: FunctionTemplateBody.Node.VirtualCall): ModuleDevirtualizationAnalysisResult.VirtualCall.Builder {
-                    val result = ModuleDevirtualizationAnalysisResult.VirtualCall.newBuilder()
-                    result.setCall(buildCall(virtualCall))
-                    result.receiverType = typeMap[virtualCall.receiverType]!!
-                    return result
-                }
-
-                fun buildField(field: FunctionTemplateBody.Field): ModuleDevirtualizationAnalysisResult.Field.Builder {
-                    val result = ModuleDevirtualizationAnalysisResult.Field.newBuilder()
-                    field.type?.let { result.type = typeMap[it]!! }
-                    result.name = field.name
-                    return result
-                }
-
-                for (node in nodeMap.entries.sortedBy { it.value }.map { it.key }) {
-                    val nodeBuilder = ModuleDevirtualizationAnalysisResult.Node.newBuilder()
-                    when (node) {
-                        is FunctionTemplateBody.Node.Parameter -> {
-                            val parameterBuilder = ModuleDevirtualizationAnalysisResult.Parameter.newBuilder()
-                            parameterBuilder.index = node.index
-                            nodeBuilder.setParameter(parameterBuilder)
-                        }
-
-                        is FunctionTemplateBody.Node.Const -> {
-                            val constBuilder = ModuleDevirtualizationAnalysisResult.Const.newBuilder()
-                            constBuilder.type = typeMap[node.type]!!
-                            nodeBuilder.setConst(constBuilder)
-                        }
-
-                        is FunctionTemplateBody.Node.StaticCall -> {
-                            val staticCallBuilder = ModuleDevirtualizationAnalysisResult.StaticCall.newBuilder()
-                            staticCallBuilder.setCall(buildCall(node))
-                            nodeBuilder.setStaticCall(staticCallBuilder)
-                        }
-
-                        is FunctionTemplateBody.Node.NewObject -> {
-                            val newObjectBuilder = ModuleDevirtualizationAnalysisResult.NewObject.newBuilder()
-                            newObjectBuilder.setCall(buildCall(node))
-                            nodeBuilder.setNewObject(newObjectBuilder)
-                        }
-
-                        is FunctionTemplateBody.Node.VtableCall -> {
-                            val vTableCallBuilder = ModuleDevirtualizationAnalysisResult.VtableCall.newBuilder()
-                            vTableCallBuilder.setVirtualCall(buildVirtualCall(node))
-                            vTableCallBuilder.calleeVtableIndex = node.calleeVtableIndex
-                            nodeBuilder.setVtableCall(vTableCallBuilder)
-                        }
-
-                        is FunctionTemplateBody.Node.ItableCall -> {
-                            val iTableCallBuilder = ModuleDevirtualizationAnalysisResult.ItableCall.newBuilder()
-                            iTableCallBuilder.setVirtualCall(buildVirtualCall(node))
-                            iTableCallBuilder.calleeHash = node.calleeHash
-                            nodeBuilder.setItableCall(iTableCallBuilder)
-                        }
-
-                        is FunctionTemplateBody.Node.Singleton -> {
-                            val singletonBuilder = ModuleDevirtualizationAnalysisResult.Singleton.newBuilder()
-                            singletonBuilder.type = typeMap[node.type]!!
-                            nodeBuilder.setSingleton(singletonBuilder)
-                        }
-
-                        is FunctionTemplateBody.Node.FieldRead -> {
-                            val fieldReadBuilder = ModuleDevirtualizationAnalysisResult.FieldRead.newBuilder()
-                            node.receiver?.let { fieldReadBuilder.setReceiver(buildEdge(it)) }
-                            fieldReadBuilder.setField(buildField(node.field))
-                            nodeBuilder.setFieldRead(fieldReadBuilder)
-                        }
-
-                        is FunctionTemplateBody.Node.FieldWrite -> {
-                            val fieldWriteBuilder = ModuleDevirtualizationAnalysisResult.FieldWrite.newBuilder()
-                            node.receiver?.let { fieldWriteBuilder.setReceiver(buildEdge(it)) }
-                            fieldWriteBuilder.setField(buildField(node.field))
-                            fieldWriteBuilder.setValue(buildEdge(node.value))
-                            nodeBuilder.setFieldWrite(fieldWriteBuilder)
-                        }
-
-                        is FunctionTemplateBody.Node.Variable -> {
-                            val variableBuilder = ModuleDevirtualizationAnalysisResult.Variable.newBuilder()
-                            node.values.forEach {
-                                variableBuilder.addValues(buildEdge(it))
-                            }
-                            nodeBuilder.setVariable(variableBuilder)
-                        }
-
-                        is FunctionTemplateBody.Node.TempVariable -> {
-                            val tempVariableBuilder = ModuleDevirtualizationAnalysisResult.TempVariable.newBuilder()
-                            node.values.forEach {
-                                tempVariableBuilder.addValues(buildEdge(it))
-                            }
-                            nodeBuilder.setTempVariable(tempVariableBuilder)
-                        }
-                    }
-                    bodyBuilder.addNodes(nodeBuilder)
-                }
-                bodyBuilder.returns = nodeMap[body.returns]!!
-                functionTemplateBuilder.setBody(bodyBuilder)
-                moduleBuilder.addFunctionTemplates(functionTemplateBuilder)
+                result.node = nodeMap[edge.node]!!
+                edge.castToType?.let { result.castToType = typeMap[it]!! }
+                return result
             }
+
+            fun buildCall(call: FunctionTemplateBody.Node.Call): ModuleDevirtualizationAnalysisResult.Call.Builder {
+                val result = ModuleDevirtualizationAnalysisResult.Call.newBuilder()
+                result.callee = functionIdMap[call.callee]!!
+                result.returnType = typeMap[call.returnType]!!
+                call.arguments.forEach {
+                    result.addArguments(buildEdge(it))
+                }
+                return result
+            }
+
+            fun buildVirtualCall(virtualCall: FunctionTemplateBody.Node.VirtualCall): ModuleDevirtualizationAnalysisResult.VirtualCall.Builder {
+                val result = ModuleDevirtualizationAnalysisResult.VirtualCall.newBuilder()
+                result.setCall(buildCall(virtualCall))
+                result.receiverType = typeMap[virtualCall.receiverType]!!
+                return result
+            }
+
+            fun buildField(field: FunctionTemplateBody.Field): ModuleDevirtualizationAnalysisResult.Field.Builder {
+                val result = ModuleDevirtualizationAnalysisResult.Field.newBuilder()
+                field.type?.let { result.type = typeMap[it]!! }
+                result.name = field.name
+                return result
+            }
+
+            for (node in nodeMap.entries.sortedBy { it.value }.map { it.key }) {
+                val nodeBuilder = ModuleDevirtualizationAnalysisResult.Node.newBuilder()
+                when (node) {
+                    is FunctionTemplateBody.Node.Parameter -> {
+                        val parameterBuilder = ModuleDevirtualizationAnalysisResult.Parameter.newBuilder()
+                        parameterBuilder.index = node.index
+                        nodeBuilder.setParameter(parameterBuilder)
+                    }
+
+                    is FunctionTemplateBody.Node.Const -> {
+                        val constBuilder = ModuleDevirtualizationAnalysisResult.Const.newBuilder()
+                        constBuilder.type = typeMap[node.type]!!
+                        nodeBuilder.setConst(constBuilder)
+                    }
+
+                    is FunctionTemplateBody.Node.StaticCall -> {
+                        val staticCallBuilder = ModuleDevirtualizationAnalysisResult.StaticCall.newBuilder()
+                        staticCallBuilder.setCall(buildCall(node))
+                        nodeBuilder.setStaticCall(staticCallBuilder)
+                    }
+
+                    is FunctionTemplateBody.Node.NewObject -> {
+                        val newObjectBuilder = ModuleDevirtualizationAnalysisResult.NewObject.newBuilder()
+                        newObjectBuilder.setCall(buildCall(node))
+                        nodeBuilder.setNewObject(newObjectBuilder)
+                    }
+
+                    is FunctionTemplateBody.Node.VtableCall -> {
+                        val vTableCallBuilder = ModuleDevirtualizationAnalysisResult.VtableCall.newBuilder()
+                        vTableCallBuilder.setVirtualCall(buildVirtualCall(node))
+                        vTableCallBuilder.calleeVtableIndex = node.calleeVtableIndex
+                        nodeBuilder.setVtableCall(vTableCallBuilder)
+                    }
+
+                    is FunctionTemplateBody.Node.ItableCall -> {
+                        val iTableCallBuilder = ModuleDevirtualizationAnalysisResult.ItableCall.newBuilder()
+                        iTableCallBuilder.setVirtualCall(buildVirtualCall(node))
+                        iTableCallBuilder.calleeHash = node.calleeHash
+                        nodeBuilder.setItableCall(iTableCallBuilder)
+                    }
+
+                    is FunctionTemplateBody.Node.Singleton -> {
+                        val singletonBuilder = ModuleDevirtualizationAnalysisResult.Singleton.newBuilder()
+                        singletonBuilder.type = typeMap[node.type]!!
+                        nodeBuilder.setSingleton(singletonBuilder)
+                    }
+
+                    is FunctionTemplateBody.Node.FieldRead -> {
+                        val fieldReadBuilder = ModuleDevirtualizationAnalysisResult.FieldRead.newBuilder()
+                        node.receiver?.let { fieldReadBuilder.setReceiver(buildEdge(it)) }
+                        fieldReadBuilder.setField(buildField(node.field))
+                        nodeBuilder.setFieldRead(fieldReadBuilder)
+                    }
+
+                    is FunctionTemplateBody.Node.FieldWrite -> {
+                        val fieldWriteBuilder = ModuleDevirtualizationAnalysisResult.FieldWrite.newBuilder()
+                        node.receiver?.let { fieldWriteBuilder.setReceiver(buildEdge(it)) }
+                        fieldWriteBuilder.setField(buildField(node.field))
+                        fieldWriteBuilder.setValue(buildEdge(node.value))
+                        nodeBuilder.setFieldWrite(fieldWriteBuilder)
+                    }
+
+                    is FunctionTemplateBody.Node.Variable -> {
+                        val variableBuilder = ModuleDevirtualizationAnalysisResult.Variable.newBuilder()
+                        node.values.forEach {
+                            variableBuilder.addValues(buildEdge(it))
+                        }
+                        nodeBuilder.setVariable(variableBuilder)
+                    }
+
+                    is FunctionTemplateBody.Node.TempVariable -> {
+                        val tempVariableBuilder = ModuleDevirtualizationAnalysisResult.TempVariable.newBuilder()
+                        node.values.forEach {
+                            tempVariableBuilder.addValues(buildEdge(it))
+                        }
+                        nodeBuilder.setTempVariable(tempVariableBuilder)
+                    }
+                }
+                bodyBuilder.addNodes(nodeBuilder)
+            }
+            bodyBuilder.returns = nodeMap[body.returns]!!
+            functionTemplateBuilder.setBody(bodyBuilder)
+            moduleBuilder.addFunctionTemplates(functionTemplateBuilder)
         }
 
         var privateTypeIndex = intraproceduralAnalysisResult.symbolTable.privateTypeIndex
@@ -1782,11 +1817,10 @@ internal object Devirtualization {
         val specifics = context.config.configuration.get(CommonConfigurationKeys.LANGUAGE_VERSION_SETTINGS)!!
         context.config.libraries.forEach { library ->
             val libraryDevirtualizationAnalysis = library.devirtualizationAnalysis
+            //if (DEBUG > 0) {
+                println("Devirtualization analysis size for lib '${library.libraryName}': ${libraryDevirtualizationAnalysis?.size ?: 0}")
+            //}
             if (libraryDevirtualizationAnalysis != null) {
-                if (DEBUG > 0) {
-                    println("Devirtualization analysis size for lib '${library.libraryName}': ${libraryDevirtualizationAnalysis.size}")
-                }
-
                 val module = FunctionTemplateBody.Module(library.moduleDescriptor(specifics).name.asString())
                 val moduleDevirtualizationAnalysisResult = ModuleDevirtualizationAnalysisResult.Module.parseFrom(libraryDevirtualizationAnalysis)
 

@@ -177,6 +177,7 @@ targetList.each { target ->
         args = [*konanArgs,
                 '-output', project(':runtime').file("build/${target}Stdlib"),
                 '-produce', 'library',
+                '-module_name', '<stdlib>',
                 project(':Interop:Runtime').file('src/main/kotlin'),
                 project(':Interop:Runtime').file('src/native/kotlin'),
                 project(':runtime').file('src/main/kotlin')]
