@@ -27,7 +27,6 @@ import org.jetbrains.kotlin.backend.common.pop
 import org.jetbrains.kotlin.backend.common.push
 import org.jetbrains.kotlin.backend.konan.descriptors.*
 import org.jetbrains.kotlin.backend.konan.ir.IrPrivateFunctionCallImpl
-import org.jetbrains.kotlin.backend.konan.ir.IrReturnableBlock
 import org.jetbrains.kotlin.backend.konan.ir.IrSuspendableExpression
 import org.jetbrains.kotlin.backend.konan.ir.IrSuspensionPoint
 import org.jetbrains.kotlin.backend.konan.llvm.*
@@ -1608,8 +1607,8 @@ internal object Devirtualization {
 //                        println("${alltypes[i].key} = ${alltypes[j].key}")
 //                        println("${alltypes[i].value} = ${alltypes[j].value}")
 //                    }
-        val typeMap = symbolTable.classMap.values.withIndex().associateBy({ it.value }, { it.index })
-        val functionIdMap = symbolTable.functionMap.values.withIndex().associateBy({ it.value }, { it.index })
+        val typeMap = symbolTable.classMap.values.distinct().withIndex().associateBy({ it.value }, { it.index })
+        val functionIdMap = symbolTable.functionMap.values.distinct().withIndex().associateBy({ it.value }, { it.index })
         println("TYPES: ${typeMap.size}, FUNCTIONS: ${functionIdMap.size}, PRIVATE FUNCTIONS: ${functionIdMap.keys.count { it is FunctionTemplateBody.FunctionId.Private }}, FUNCTION TABLE SIZE: ${symbolTable.couldBeCalledVirtuallyIndex}")
         for (type in typeMap.entries.sortedBy { it.value }.map { it.key }) {
 
