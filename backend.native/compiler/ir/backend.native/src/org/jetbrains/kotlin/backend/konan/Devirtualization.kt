@@ -46,6 +46,7 @@ import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.resolve.OverridingUtil
 import org.jetbrains.kotlin.resolve.descriptorUtil.fqNameSafe
+import org.jetbrains.kotlin.resolve.descriptorUtil.getSuperClassNotAny
 import org.jetbrains.kotlin.resolve.descriptorUtil.module
 import org.jetbrains.kotlin.resolve.scopes.MemberScope
 import org.jetbrains.kotlin.types.KotlinType
@@ -205,6 +206,8 @@ internal object Devirtualization {
     internal class FunctionTemplateBody(val nodes: List<Node>, val returns: Node.TempVariable) {
 
         abstract class Type {
+            object Virtual: Declared(false, true)
+
             class External(val name: String): Type() {
                 override fun equals(other: Any?): Boolean {
                     if (this === other) return true
@@ -404,6 +407,13 @@ internal object Devirtualization {
         }
 
         fun mapClass(descriptor: ClassDescriptor): FunctionTemplateBody.Type {
+//            if (descriptor.module.name == Name.special("<forward declarations>"))
+//                return mapClass(descriptor.getSuperClassNotAny()!!)
+//            if (descriptor.isObjCClass())
+//                return mapClass(context.interopBuiltIns.objCPointerHolder)
+            if (descriptor.module.name == Name.special("<forward declarations>") || descriptor.isObjCClass())
+                return FunctionTemplateBody.Type.Virtual
+
             val name = descriptor.fqNameSafe.asString()
             if (descriptor.module != irModule.descriptor)
                 return classMap.getOrPut(descriptor) { FunctionTemplateBody.Type.External(name) }
@@ -1481,65 +1491,69 @@ internal object Devirtualization {
 
                     is FunctionTemplateBody.Node.VirtualCall -> {
                         val callee = node.callee
-                        val receiverType = node.receiverType.resolved()
-                        if (DEBUG > 0) {
-                            println("Virtual call")
-                            println("Caller: ${function.id}")
-                            println("Callee: $callee")
-                            println("Receiver type: $receiverType")
-                        }
-                        // TODO: optimize by building type hierarchy.
-                        val posibleReceiverTypes = instantiatingClasses.filter { it.isSubtypeOf(receiverType) }
-                        val callees = posibleReceiverTypes.map {
-                                    when (node) {
-                                        is FunctionTemplateBody.Node.VtableCall ->
-                                            it.vtable[node.calleeVtableIndex]
-
-                                        is FunctionTemplateBody.Node.ItableCall -> {
-                                            if (it.itable[node.calleeHash] == null) {
-                                                println("BUGBUGBUG: $it")
-                                                it.itable.forEach { hash, impl ->
-                                                    println("HASH: $hash, IMPL: $impl")
-                                                }
-                                            }
-                                            it.itable[node.calleeHash]!!
-                                        }
-
-                                        else -> error("Unreachable")
-                                    }
-                                }
-                        if (DEBUG > 0) {
-                            println("Possible callees:")
-                            callees.forEach { println("$it") }
-                            println()
-                        }
-                        if (callees.isEmpty())
+                        if (node.receiverType == FunctionTemplateBody.Type.Virtual)
                             constraintGraph.voidNode
                         else {
-                            val returnType = node.returnType.resolved()
-                            val receiverNode = edgeToConstraintNode(node.arguments[0])
-                            val castedReceiver = ConstraintGraph.Node.Cast(constraintGraph.nextId(), receiverType, function.id).also {
-                                constraintGraph.addNode(it)
+                            val receiverType = node.receiverType.resolved()
+                            if (DEBUG > 0) {
+                                println("Virtual call")
+                                println("Caller: ${function.id}")
+                                println("Callee: $callee")
+                                println("Receiver type: $receiverType")
                             }
-                            receiverNode.edges += castedReceiver
-                            val result = if (callees.size == 1) {
-                                doCall(callees[0], listOf(castedReceiver) + node.arguments.drop(1), returnType)
-                            } else {
-                                val returns = ConstraintGraph.Node.Const(constraintGraph.nextId(), "VirtualCallReturns\$${function.id}").also {
+                            // TODO: optimize by building type hierarchy.
+                            val posibleReceiverTypes = instantiatingClasses.filter { it.isSubtypeOf(receiverType) }
+                            val callees = posibleReceiverTypes.map {
+                                when (node) {
+                                    is FunctionTemplateBody.Node.VtableCall ->
+                                        it.vtable[node.calleeVtableIndex]
+
+                                    is FunctionTemplateBody.Node.ItableCall -> {
+                                        if (it.itable[node.calleeHash] == null) {
+                                            println("BUGBUGBUG: $it, HASH=${node.calleeHash}")
+                                            it.itable.forEach { hash, impl ->
+                                                println("HASH: $hash, IMPL: $impl")
+                                            }
+                                        }
+                                        it.itable[node.calleeHash]!!
+                                    }
+
+                                    else -> error("Unreachable")
+                                }
+                            }
+                            if (DEBUG > 0) {
+                                println("Possible callees:")
+                                callees.forEach { println("$it") }
+                                println()
+                            }
+                            if (callees.isEmpty())
+                                constraintGraph.voidNode
+                            else {
+                                val returnType = node.returnType.resolved()
+                                val receiverNode = edgeToConstraintNode(node.arguments[0])
+                                val castedReceiver = ConstraintGraph.Node.Cast(constraintGraph.nextId(), receiverType, function.id).also {
                                     constraintGraph.addNode(it)
                                 }
-                                callees.forEach {
-                                    doCall(it, listOf(castedReceiver) + node.arguments.drop(1), returnType).addEdge(returns)
+                                receiverNode.edges += castedReceiver
+                                val result = if (callees.size == 1) {
+                                    doCall(callees[0], listOf(castedReceiver) + node.arguments.drop(1), returnType)
+                                } else {
+                                    val returns = ConstraintGraph.Node.Const(constraintGraph.nextId(), "VirtualCallReturns\$${function.id}").also {
+                                        constraintGraph.addNode(it)
+                                    }
+                                    callees.forEach {
+                                        doCall(it, listOf(castedReceiver) + node.arguments.drop(1), returnType).addEdge(returns)
+                                    }
+                                    returns
                                 }
-                                returns
+                                val devirtualizedCallees = posibleReceiverTypes.mapIndexed { index, possibleReceiverType ->
+                                    DevirtualizedCallee(possibleReceiverType, callees[index])
+                                }
+                                node.callSite?.let {
+                                    constraintGraph.virtualCallSiteReceivers[it] = Triple(castedReceiver, devirtualizedCallees, function.id)
+                                }
+                                result
                             }
-                            val devirtualizedCallees = posibleReceiverTypes.mapIndexed { index, possibleReceiverType ->
-                                DevirtualizedCallee(possibleReceiverType, callees[index])
-                            }
-                            node.callSite?.let {
-                                constraintGraph.virtualCallSiteReceivers[it] = Triple(castedReceiver, devirtualizedCallees, function.id)
-                            }
-                            result
                         }
                     }
 
@@ -1607,7 +1621,7 @@ internal object Devirtualization {
 //                        println("${alltypes[i].key} = ${alltypes[j].key}")
 //                        println("${alltypes[i].value} = ${alltypes[j].value}")
 //                    }
-        val typeMap = symbolTable.classMap.values.distinct().withIndex().associateBy({ it.value }, { it.index })
+        val typeMap = (symbolTable.classMap.values + FunctionTemplateBody.Type.Virtual).distinct().withIndex().associateBy({ it.value }, { it.index })
         val functionIdMap = symbolTable.functionMap.values.distinct().withIndex().associateBy({ it.value }, { it.index })
         println("TYPES: ${typeMap.size}, FUNCTIONS: ${functionIdMap.size}, PRIVATE FUNCTIONS: ${functionIdMap.keys.count { it is FunctionTemplateBody.FunctionId.Private }}, FUNCTION TABLE SIZE: ${symbolTable.couldBeCalledVirtuallyIndex}")
         for (type in typeMap.entries.sortedBy { it.value }.map { it.key }) {
@@ -1629,6 +1643,10 @@ internal object Devirtualization {
 
             val typeBuilder = ModuleDevirtualizationAnalysisResult.Type.newBuilder()
             when (type) {
+                FunctionTemplateBody.Type.Virtual -> {
+                    typeBuilder.setVirtual(1)
+                }
+
                 is FunctionTemplateBody.Type.External -> {
                     val externalTypeBuilder = ModuleDevirtualizationAnalysisResult.ExternalType.newBuilder()
                     externalTypeBuilder.name = type.name
@@ -1826,6 +1844,9 @@ internal object Devirtualization {
                 val symbolTable = moduleDevirtualizationAnalysisResult.symbolTable
                 val types = symbolTable.typesList.map {
                     when (it.typeCase) {
+                        ModuleDevirtualizationAnalysisResult.Type.TypeCase.VIRTUAL ->
+                            FunctionTemplateBody.Type.Virtual
+
                         ModuleDevirtualizationAnalysisResult.Type.TypeCase.EXTERNAL ->
                             FunctionTemplateBody.Type.External(it.external.name)
 

@@ -37,6 +37,7 @@ message Type {
         ExternalType external = 1;
         PublicType public = 2;
         PrivateType private = 3;
+        int32 virtual = 4;
     }
 }
 
