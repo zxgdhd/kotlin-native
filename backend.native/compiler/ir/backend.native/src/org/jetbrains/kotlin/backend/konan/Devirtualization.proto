@@ -94,6 +94,7 @@ message Call {
 
 message StaticCall {
     required Call call = 1;
+    optional int32 receiverType = 2;
 }
 
 message NewObject {

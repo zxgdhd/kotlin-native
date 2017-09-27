@@ -17,7 +17,7 @@
 package org.jetbrains.kotlin.backend.konan.serialization
 
 
-import org.jetbrains.kotlin.backend.common.DeepCopyIrTreeWithDescriptors
+import org.jetbrains.kotlin.backend.konan.lower.DeepCopyIrTreeWithDescriptors_Native
 import org.jetbrains.kotlin.backend.konan.Context
 import org.jetbrains.kotlin.backend.konan.descriptors.deserializedPropertyIfAccessor
 import org.jetbrains.kotlin.backend.konan.descriptors.isDeserializableCallable
@@ -1203,7 +1203,7 @@ internal class IrDeserializer(val context: Context,
             (key,value) ->
         key to value}
 
-        val copyFunctionDeclaration = DeepCopyIrTreeWithDescriptors(rootFunction, context).copy(
+        val copyFunctionDeclaration = DeepCopyIrTreeWithDescriptors_Native(rootFunction, context).copy(
             irElement       = declaration,      
             typeSubstitutor = TypeSubstitutor.create(substitutionContext)  
         ) as IrFunction

@@ -107,7 +107,7 @@ private class Inliner(val globalSubstituteMap: MutableMap<DeclarationDescriptor,
                       val currentScope: ScopeWithIr,
                       val context: Context) {
 
-    val copyIrElement = DeepCopyIrTreeWithDescriptors(functionDeclaration.descriptor, context) // Create DeepCopy for current scope.
+    val copyIrElement = DeepCopyIrTreeWithDescriptors_Native(functionDeclaration.descriptor, context) // Create DeepCopy for current scope.
     val substituteMap = mutableMapOf<ValueDescriptor, IrExpression>()
 
     //-------------------------------------------------------------------------//

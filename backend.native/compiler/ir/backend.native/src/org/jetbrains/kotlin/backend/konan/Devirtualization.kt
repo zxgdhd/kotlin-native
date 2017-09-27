@@ -19,7 +19,6 @@ package org.jetbrains.kotlin.backend.konan
 import org.jetbrains.kotlin.backend.common.IrElementTransformerVoidWithContext
 import org.jetbrains.kotlin.backend.common.descriptors.allParameters
 import org.jetbrains.kotlin.backend.common.descriptors.isSuspend
-import org.jetbrains.kotlin.backend.common.ir.ir2string
 import org.jetbrains.kotlin.backend.common.ir.ir2stringWhole
 import org.jetbrains.kotlin.backend.common.lower.createIrBuilder
 import org.jetbrains.kotlin.backend.common.peek
@@ -46,7 +45,6 @@ import org.jetbrains.kotlin.name.FqName
 import org.jetbrains.kotlin.name.Name
 import org.jetbrains.kotlin.resolve.OverridingUtil
 import org.jetbrains.kotlin.resolve.descriptorUtil.fqNameSafe
-import org.jetbrains.kotlin.resolve.descriptorUtil.getSuperClassNotAny
 import org.jetbrains.kotlin.resolve.descriptorUtil.module
 import org.jetbrains.kotlin.resolve.scopes.MemberScope
 import org.jetbrains.kotlin.types.KotlinType
@@ -112,11 +110,6 @@ internal object Devirtualization {
                                             val suspendableExpressionValues: Map<IrSuspendableExpression, List<IrSuspensionPoint>>) {
 
         fun forEachValue(expression: IrExpression, block: (IrExpression) -> Unit) {
-            if ((expression.type.isUnit() || expression.type.isNothing()) && expression !is IrGetObjectValue) {
-                block(IrGetObjectValueImpl(expression.startOffset, expression.endOffset,
-                        expression.type, (expression.type.constructor.declarationDescriptor as ClassDescriptor)))
-                return
-            }
             when (expression) {
                 is IrReturnableBlock -> returnableBlockValues[expression]!!.forEach { forEachValue(it, block) }
 
@@ -164,7 +157,15 @@ internal object Devirtualization {
 
                 is IrFunctionReference -> block(expression)
 
-                else -> TODO("Unknown expression: ${ir2string(expression)}")
+                is IrSetField -> block(expression)
+
+                else -> {
+                    if ((expression.type.isUnit() || expression.type.isNothing())) {
+                        block(IrGetObjectValueImpl(expression.startOffset, expression.endOffset,
+                                expression.type, (expression.type.constructor.declarationDescriptor as ClassDescriptor)))
+                    }
+                    else TODO(ir2stringWhole(expression))
+                }
             }
         }
     }
@@ -343,7 +344,8 @@ internal object Devirtualization {
 
             open class Call(val callee: FunctionId, val arguments: List<Edge>, val returnType: Type): Node()
 
-            class StaticCall(callee: FunctionId, arguments: List<Edge>, returnType: Type): Call(callee, arguments, returnType)
+            class StaticCall(callee: FunctionId, arguments: List<Edge>, returnType: Type,
+                             val receiverType: Type?): Call(callee, arguments, returnType)
 
             class NewObject(constructor: FunctionId, arguments: List<Edge>, type: Type): Call(constructor, arguments, type)
 
@@ -446,6 +448,23 @@ internal object Devirtualization {
         fun mapType(type: KotlinType) =
                 mapClass(type.erasure().single().constructor.declarationDescriptor as ClassDescriptor)
 
+        private fun getFqName(descriptor: DeclarationDescriptor): FqName {
+            if (descriptor is PackageFragmentDescriptor) {
+                return descriptor.fqName
+            }
+
+
+            val containingDeclaration = descriptor.containingDeclaration
+            val parent = if (containingDeclaration != null) {
+                getFqName(containingDeclaration)
+            } else {
+                FqName.ROOT
+            }
+
+            val localName = descriptor.name
+            return parent.child(localName)
+        }
+
         fun mapFunction(descriptor: CallableDescriptor) = descriptor.original.let {
             functionMap.getOrPut(it) {
                 when (it) {
@@ -467,7 +486,7 @@ internal object Devirtualization {
                             if (it.isExported())
                                 FunctionTemplateBody.FunctionId.Public(it.symbolName, module, symbolTableIndex)
                             else
-                                FunctionTemplateBody.FunctionId.Private(it.functionName, privateFunIndex++, module, symbolTableIndex)
+                                FunctionTemplateBody.FunctionId.Private(getFqName(it).asString() + "#internal"/*it.functionName*/, privateFunIndex++, module, symbolTableIndex)
                         }
                     }
 
@@ -535,9 +554,11 @@ internal object Devirtualization {
                                 node.values += expressionToEdge(it)
                             }
                     }
-                    val allNodes = (nodes.values + variables.values + templateParameters.values + returns).distinct().toList()
+                    val allNodes = nodes.values + variables.values + templateParameters.values + returns +
+                            (if (descriptor.isSuspend) listOf(continuationParameter!!) else emptyList())
+
                     template = FunctionTemplate(symbolTable.mapFunction(descriptor),
-                            templateParameters.size + if (descriptor.isSuspend) 1 else 0, FunctionTemplateBody(allNodes, returns))
+                            templateParameters.size + if (descriptor.isSuspend) 1 else 0, FunctionTemplateBody(allNodes.distinct().toList(), returns))
                 }
 
                 private fun expressionToEdge(expression: IrExpression) =
@@ -634,7 +655,8 @@ internal object Devirtualization {
                                                     FunctionTemplateBody.Node.StaticCall(
                                                             symbolTable.mapFunction(actualCallee),
                                                             arguments,
-                                                            symbolTable.mapType(actualCallee.returnType!!)
+                                                            symbolTable.mapType(actualCallee.returnType!!),
+                                                            actualCallee.dispatchReceiverParameter?.let { symbolTable.mapType(it.type) }
                                                     )
                                                 }
                                             }
@@ -648,7 +670,8 @@ internal object Devirtualization {
                                         FunctionTemplateBody.Node.StaticCall(
                                                 symbolTable.mapFunction(value.descriptor),
                                                 arguments.map { expressionToEdge(it) },
-                                                symbolTable.mapClass(context.builtIns.unit)
+                                                symbolTable.mapClass(context.builtIns.unit),
+                                                symbolTable.mapType(thiz.type)
                                         )
                                     }
 
@@ -809,6 +832,8 @@ internal object Devirtualization {
         }
 
         fun debugOutput() {
+            println("FUNCTION TEMPLATE $id")
+            println("Params: $numberOfParameters")
             val ids = body.nodes.withIndex().associateBy({ it.value }, { it.index })
             body.nodes.forEach {
                 println("    NODE #${ids[it]!!}")
@@ -898,7 +923,6 @@ internal object Devirtualization {
                             visitor.returnValues, expressionValuesExtractor, symbolTable)
 
                     if (DEBUG > 1) {
-                        println("FUNCTION TEMPLATE ${functionTemplate.id}")
                         functionTemplate.debugOutput()
                     }
 
@@ -1057,8 +1081,8 @@ internal object Devirtualization {
 
             sealed class Node(val id: Int) {
                 val types = mutableSetOf<Type>()
-                val edges = mutableListOf<Node>()
-                val reversedEdges = mutableListOf<Node>()
+                val edges = mutableSetOf<Node>()
+                val reversedEdges = mutableSetOf<Node>()
 
                 fun addEdge(node: Node) {
                     edges += node
@@ -1211,8 +1235,8 @@ internal object Devirtualization {
                         println("       CG NODE #${constraintNode.id}: $constraintNode")
                         println()
                     }
-                    // CONSTRAINT GRAPH FOR PublicFunction(name='kfun:kotlin.Array.iterator()Reference')
                     println("Returns: #${ids[it.value.body.returns]}")
+                    println()
                 }
             }
             val rootSet = getRootSet(irModule)
@@ -1318,6 +1342,13 @@ internal object Devirtualization {
                             if (callee is FunctionTemplateBody.FunctionId.Declared && callee.symbolTableIndex < 0)
                                 error("Function ${devirtualizedCallee.receiverType}.$callee cannot be called virtually," +
                                         " but actually is at call site: ${ir2stringWhole(callSite)}")
+//
+//                            println("RECEIVER: #${receiver.first.id}")
+//                            println("TYPES:")
+//                            receiver.first.types.forEach {
+//                                println(it)
+//                            }
+
                             devirtualizedCallee
                         }) to receiver.third)
                     }
@@ -1420,16 +1451,17 @@ internal object Devirtualization {
             fun edgeToConstraintNode(edge: FunctionTemplateBody.Edge): ConstraintGraph.Node =
                     edgeToConstraintNode(function, edge, functionNodesMap, variables, instantiatingClasses)
 
+            fun argumentToConstraintNode(argument: Any): ConstraintGraph.Node =
+                    when (argument) {
+                        is ConstraintGraph.Node -> argument
+                        is FunctionTemplateBody.Edge -> edgeToConstraintNode(argument)
+                        else -> error("Unexpected argument: $argument")
+                    }
+
             fun doCall(callee: ConstraintGraph.Function, arguments: List<Any>): ConstraintGraph.Node {
                 assert(callee.parameters.size == arguments.size, { "Function ${callee.id} takes ${callee.parameters.size} but caller ${function.id} provided ${arguments.size}" })
                 callee.parameters.forEachIndexed { index, parameter ->
-                    val argument = arguments[index].let {
-                        when (it) {
-                            is ConstraintGraph.Node -> it
-                            is FunctionTemplateBody.Edge -> edgeToConstraintNode(it)
-                            else -> error("Unexpected argument: $it")
-                        }
-                    }
+                    val argument = argumentToConstraintNode(arguments[index])
                     argument.addEdge(parameter)
                 }
                 return callee.returns
@@ -1437,15 +1469,25 @@ internal object Devirtualization {
 
             fun doCall(callee: FunctionTemplateBody.FunctionId,
                        arguments: List<Any>,
-                       returnType: FunctionTemplateBody.Type.Declared): ConstraintGraph.Node {
+                       returnType: FunctionTemplateBody.Type.Declared,
+                       receiverType: FunctionTemplateBody.Type.Declared?): ConstraintGraph.Node {
                 val calleeConstraintGraph = buildFunctionConstraintGraph(callee.resolved(), functionNodesMap, variables, instantiatingClasses)
-                return if (calleeConstraintGraph != null)
-                    doCall(calleeConstraintGraph, arguments)
-                else {
+                return if (calleeConstraintGraph == null) {
                     constraintGraph.concreteClasses.getOrPut(returnType) {
                         ConstraintGraph.Node.Const(constraintGraph.nextId(), "Class\$$returnType", ConstraintGraph.Type.concrete(returnType)).also {
                             constraintGraph.addNode(it)
                         }
+                    }
+                } else {
+                    if (receiverType == null)
+                        doCall(calleeConstraintGraph, arguments)
+                    else {
+                        val receiverNode = argumentToConstraintNode(arguments[0])
+                        val castedReceiver = ConstraintGraph.Node.Cast(constraintGraph.nextId(), receiverType, function.id).also {
+                            constraintGraph.addNode(it)
+                        }
+                        receiverNode.addEdge(castedReceiver)
+                        doCall(calleeConstraintGraph, listOf(castedReceiver) + arguments.drop(1))
                     }
                 }
             }
@@ -1475,7 +1517,7 @@ internal object Devirtualization {
                         function.parameters[node.index]
 
                     is FunctionTemplateBody.Node.StaticCall ->
-                        doCall(node.callee, node.arguments, node.returnType.resolved())
+                        doCall(node.callee, node.arguments, node.returnType.resolved(), node.receiverType?.resolved())
 
                     is FunctionTemplateBody.Node.NewObject -> {
                         val returnType = node.returnType.resolved()
@@ -1485,7 +1527,7 @@ internal object Devirtualization {
                                 constraintGraph.addNode(it)
                             }
                         }
-                        doCall(node.callee, listOf(instanceNode) + node.arguments, returnType)
+                        doCall(node.callee, listOf(instanceNode) + node.arguments, returnType, null)
                         instanceNode
                     }
 
@@ -1502,8 +1544,8 @@ internal object Devirtualization {
                                 println("Receiver type: $receiverType")
                             }
                             // TODO: optimize by building type hierarchy.
-                            val posibleReceiverTypes = instantiatingClasses.filter { it.isSubtypeOf(receiverType) }
-                            val callees = posibleReceiverTypes.map {
+                            val possibleReceiverTypes = instantiatingClasses.filter { it.isSubtypeOf(receiverType) }
+                            val callees = possibleReceiverTypes.map {
                                 when (node) {
                                     is FunctionTemplateBody.Node.VtableCall ->
                                         it.vtable[node.calleeVtableIndex]
@@ -1534,19 +1576,19 @@ internal object Devirtualization {
                                 val castedReceiver = ConstraintGraph.Node.Cast(constraintGraph.nextId(), receiverType, function.id).also {
                                     constraintGraph.addNode(it)
                                 }
-                                receiverNode.edges += castedReceiver
+                                receiverNode.addEdge(castedReceiver)
                                 val result = if (callees.size == 1) {
-                                    doCall(callees[0], listOf(castedReceiver) + node.arguments.drop(1), returnType)
+                                    doCall(callees[0], listOf(castedReceiver) + node.arguments.drop(1), returnType, possibleReceiverTypes.single())
                                 } else {
                                     val returns = ConstraintGraph.Node.Const(constraintGraph.nextId(), "VirtualCallReturns\$${function.id}").also {
                                         constraintGraph.addNode(it)
                                     }
-                                    callees.forEach {
-                                        doCall(it, listOf(castedReceiver) + node.arguments.drop(1), returnType).addEdge(returns)
+                                    callees.forEachIndexed { index, actualCallee ->
+                                        doCall(actualCallee, listOf(castedReceiver) + node.arguments.drop(1), returnType, possibleReceiverTypes[index]).addEdge(returns)
                                     }
                                     returns
                                 }
-                                val devirtualizedCallees = posibleReceiverTypes.mapIndexed { index, possibleReceiverType ->
+                                val devirtualizedCallees = possibleReceiverTypes.mapIndexed { index, possibleReceiverType ->
                                     DevirtualizedCallee(possibleReceiverType, callees[index])
                                 }
                                 node.callSite?.let {
@@ -1706,12 +1748,12 @@ internal object Devirtualization {
 
             fun buildEdge(edge: FunctionTemplateBody.Edge): ModuleDevirtualizationAnalysisResult.Edge.Builder {
                 val result = ModuleDevirtualizationAnalysisResult.Edge.newBuilder()
-//                    if (nodeMap[edge.node] == null) {
-//                        println("ZUGZUGZUG")
-//                        functionTemplate.printNode(edge.node, nodeMap)
-//                        println()
-//                        functionTemplate.debugOutput()
-//                    }
+                    if (nodeMap[edge.node] == null) {
+                        println("ZUGZUGZUG")
+                        functionTemplate.printNode(edge.node, nodeMap)
+                        println()
+                        functionTemplate.debugOutput()
+                    }
                 result.node = nodeMap[edge.node]!!
                 edge.castToType?.let { result.castToType = typeMap[it]!! }
                 return result
@@ -1759,6 +1801,8 @@ internal object Devirtualization {
                     is FunctionTemplateBody.Node.StaticCall -> {
                         val staticCallBuilder = ModuleDevirtualizationAnalysisResult.StaticCall.newBuilder()
                         staticCallBuilder.setCall(buildCall(node))
+                        if (node.receiverType != null)
+                            staticCallBuilder.receiverType = typeMap[node.receiverType]!!
                         nodeBuilder.setStaticCall(staticCallBuilder)
                     }
 
@@ -1861,6 +1905,7 @@ internal object Devirtualization {
                         else -> error("Unknown type: ${it.typeCase}")
                     }
                 }
+
                 val functionIds = symbolTable.functionIdsList.map {
                     when (it.functionIdCase) {
                         ModuleDevirtualizationAnalysisResult.FunctionId.FunctionIdCase.EXTERNAL ->
@@ -1904,6 +1949,17 @@ internal object Devirtualization {
 //                        println("ITABLE SIZE = ${intestines.itableList.size}")
 //                    }
                 }
+//
+//                println("TYPES TABLE")
+//                types.forEach {
+//                    println(it)
+//                    if (it is FunctionTemplateBody.Type.Declared) {
+//                        println("    Super types:")
+//                        it.superTypes.forEach {
+//                            println("        $it")
+//                        }
+//                    }
+//                }
 
                 fun deserializeEdge(edge: ModuleDevirtualizationAnalysisResult.Edge): FunctionTemplateBody.Edge {
                     return FunctionTemplateBody.Edge(if (edge.hasCastToType()) types[edge.castToType] else null)
@@ -1944,7 +2000,8 @@ internal object Devirtualization {
 
                             ModuleDevirtualizationAnalysisResult.Node.NodeCase.STATICCALL -> {
                                 val call = deserializeCall(it.staticCall.call)
-                                FunctionTemplateBody.Node.StaticCall(call.callee, call.arguments, call.returnType)
+                                val receiverType = if (it.staticCall.hasReceiverType()) types[it.staticCall.receiverType] else null
+                                FunctionTemplateBody.Node.StaticCall(call.callee, call.arguments, call.returnType, receiverType)
                             }
 
                             ModuleDevirtualizationAnalysisResult.Node.NodeCase.NEWOBJECT -> {
