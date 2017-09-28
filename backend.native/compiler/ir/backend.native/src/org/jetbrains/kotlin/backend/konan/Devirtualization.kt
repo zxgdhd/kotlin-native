@@ -121,7 +121,10 @@ internal object Devirtualization {
                     forEachValue(expression.resumeResult, block)
                 }
 
-                is IrContainerExpression -> forEachValue(expression.statements.last() as IrExpression, block)
+                is IrContainerExpression -> {
+                    if (expression.statements.isNotEmpty())
+                        forEachValue(expression.statements.last() as IrExpression, block)
+                }
 
                 is IrWhen -> expression.branches.forEach { forEachValue(it.result, block) }
 
@@ -1045,7 +1048,7 @@ internal object Devirtualization {
             private var nodesCount = 0
 
             val nodes = mutableListOf<Node>()
-            val voidNode = Node.Const(nextId(), "Void").also { nodes.add(it) }
+            val voidNode = Node.Ordinary(nextId(), "Void").also { nodes.add(it) }
             val functions = mutableMapOf<FunctionTemplateBody.FunctionId, Function>()
             val concreteClasses = mutableMapOf<FunctionTemplateBody.Type.Declared, Node>()
             val virtualClasses = mutableMapOf<FunctionTemplateBody.Type.Declared, Node>()
@@ -1089,13 +1092,19 @@ internal object Devirtualization {
                     node.reversedEdges += this
                 }
 
-                class Const(id: Int, val name: String) : Node(id) {
-                    constructor(id: Int, name: String, type: Type): this(id, name) {
+                class Source(id: Int, val name: String, type: Type): Node(id) {
+                    init {
                         types += type
                     }
 
                     override fun toString(): String {
-                        return "Const(name='$name', types='${types.joinToString { it.toString() }}')"
+                        return "Source(name='$name', types='${types.joinToString { it.toString() }}')"
+                    }
+                }
+
+                class Ordinary(id: Int, val name: String) : Node(id) {
+                    override fun toString(): String {
+                        return "Ordinary(name='$name', types='${types.joinToString { it.toString() }}')"
                     }
                 }
 
@@ -1250,7 +1259,7 @@ internal object Devirtualization {
                             parameter.type.erasure().forEach {
                                 val parameterType = symbolTable.mapClass(it.constructor.declarationDescriptor as ClassDescriptor).resolved()
                                 val node = constraintGraph.virtualClasses.getOrPut(parameterType) {
-                                    ConstraintGraph.Node.Const(constraintGraph.nextId(), "Class\$$parameterType", ConstraintGraph.Type.virtual(parameterType)).also {
+                                    ConstraintGraph.Node.Source(constraintGraph.nextId(), "Class\$$parameterType", ConstraintGraph.Type.virtual(parameterType)).also {
                                         constraintGraph.addNode(it)
                                     }
                                 }
@@ -1268,6 +1277,10 @@ internal object Devirtualization {
                     it.types.forEach { println("        TYPE: $it") }
                 }
             }
+            constraintGraph.nodes.forEach {
+                if (it is ConstraintGraph.Node.Source)
+                    assert(it.reversedEdges.isEmpty(), { "A source node #${it.id} has incoming edges" })
+            }
             val condensation = constraintGraph.buildCondensation()
             if (DEBUG > 0) {
                 println("CONDENSATION")
@@ -1279,36 +1292,76 @@ internal object Devirtualization {
                 }
             }
             condensation.topologicalOrder.reversed().forEachIndexed { index, multiNode ->
-                val types = mutableSetOf<ConstraintGraph.Type>()
-                val badTypes = mutableSetOf<ConstraintGraph.Type>()
-                multiNode.nodes.forEach { types.addAll(it.types) }
-                multiNode.nodes
-                        .filterIsInstance<ConstraintGraph.Node.Cast>()
-                        .forEach {
-                            val castToType = it.castToType
-                            var wasVirtualType = false
+                if (multiNode.nodes.size == 1 && multiNode.nodes.first() is ConstraintGraph.Node.Source)
+                    return@forEachIndexed
+                while (true) {
+                    // TODO: Optimize.
+                    var somethingChanged = false
+                    for (node in multiNode.nodes) {
+                        val types = mutableSetOf<ConstraintGraph.Type>()
+                        node.reversedEdges.forEach { types += it.types }
+                        if (node is ConstraintGraph.Node.Cast) {
+                            //var wasVirtualType = false
+                            val badTypes = mutableSetOf<ConstraintGraph.Type>()
                             types.forEach {
-                                if (!it.type.isSubtypeOf(castToType)) {
+                                if (!it.type.isSubtypeOf(node.castToType)) {
                                     badTypes += it
-                                    if (it.kind == ConstraintGraph.TypeKind.VIRTUAL)
-                                        wasVirtualType = true
+//                                if (it.kind == ConstraintGraph.TypeKind.VIRTUAL)
+//                                    wasVirtualType = true
                                 }
                             }
-                            if (wasVirtualType)
-                                types += ConstraintGraph.Type.virtual(castToType)
+                            types -= badTypes
+//                        if (wasVirtualType)
+//                            node.types += ConstraintGraph.Type.virtual(node.castToType)
                         }
-                types -= badTypes
+                        if (node.types.size != types.size)
+                            somethingChanged = true
+                        else {
+                            if (types.any { !node.types.contains(it) })
+                                somethingChanged = true
+                        }
+                        node.types.clear()
+                        node.types += types
+                    }
+                    if (!somethingChanged) break
+                }
                 if (DEBUG > 0) {
                     println("Types of multi-node #$index")
-                    types.forEach { println("    $it") }
-                }
-                multiNode.nodes.forEach {
-                    it.types.clear()
-                    it.types += types
-                    it.edges.forEach {
-                        it.types += types
+                    multiNode.nodes.forEach {
+                        println("    Node #${it.id}")
+                        it.types.forEach { println("        $it") }
                     }
                 }
+//                val types = mutableSetOf<ConstraintGraph.Type>()
+//                val badTypes = mutableSetOf<ConstraintGraph.Type>()
+//                multiNode.nodes.forEach { types.addAll(it.types) }
+//                multiNode.nodes
+//                        .filterIsInstance<ConstraintGraph.Node.Cast>()
+//                        .forEach {
+//                            val castToType = it.castToType
+//                            var wasVirtualType = false
+//                            types.forEach {
+//                                if (!it.type.isSubtypeOf(castToType)) {
+//                                    badTypes += it
+//                                    if (it.kind == ConstraintGraph.TypeKind.VIRTUAL)
+//                                        wasVirtualType = true
+//                                }
+//                            }
+//                            if (wasVirtualType)
+//                                types += ConstraintGraph.Type.virtual(castToType)
+//                        }
+//                types -= badTypes
+//                if (DEBUG > 0) {
+//                    println("Types of multi-node #$index")
+//                    types.forEach { println("    $it") }
+//                }
+//                multiNode.nodes.forEach {
+//                    it.types.clear()
+//                    it.types += types
+//                    it.edges.forEach {
+//                        it.types += types
+//                    }
+//                }
             }
             val result = mutableMapOf<IrCall, Pair<DevirtualizedCallSite, FunctionTemplateBody.FunctionId>>()
             val nothing = symbolTable.mapClass(context.builtIns.nothing)
@@ -1409,11 +1462,11 @@ internal object Devirtualization {
                     ?: error("Unknown function: $id")
             val body = template.body
             val parameters = Array<ConstraintGraph.Node>(template.numberOfParameters) {
-                ConstraintGraph.Node.Const(constraintGraph.nextId(), "Param#$it\$$id").also {
+                ConstraintGraph.Node.Ordinary(constraintGraph.nextId(), "Param#$it\$$id").also {
                     constraintGraph.addNode(it)
                 }
             }
-            val returnsNode = ConstraintGraph.Node.Const(constraintGraph.nextId(), "Returns\$$id").also {
+            val returnsNode = ConstraintGraph.Node.Ordinary(constraintGraph.nextId(), "Returns\$$id").also {
                 constraintGraph.addNode(it)
             }
             val function = ConstraintGraph.Function(id, parameters, returnsNode)
@@ -1474,7 +1527,7 @@ internal object Devirtualization {
                 val calleeConstraintGraph = buildFunctionConstraintGraph(callee.resolved(), functionNodesMap, variables, instantiatingClasses)
                 return if (calleeConstraintGraph == null) {
                     constraintGraph.concreteClasses.getOrPut(returnType) {
-                        ConstraintGraph.Node.Const(constraintGraph.nextId(), "Class\$$returnType", ConstraintGraph.Type.concrete(returnType)).also {
+                        ConstraintGraph.Node.Source(constraintGraph.nextId(), "Class\$$returnType", ConstraintGraph.Type.concrete(returnType)).also {
                             constraintGraph.addNode(it)
                         }
                     }
@@ -1495,7 +1548,7 @@ internal object Devirtualization {
             if (node is FunctionTemplateBody.Node.Variable) {
                 var variableNode = variables[node]
                 if (variableNode == null) {
-                    variableNode = ConstraintGraph.Node.Const(constraintGraph.nextId(), "Variable\$${function.id}").also {
+                    variableNode = ConstraintGraph.Node.Ordinary(constraintGraph.nextId(), "Variable\$${function.id}").also {
                         constraintGraph.addNode(it)
                     }
                     variables[node] = variableNode
@@ -1509,7 +1562,7 @@ internal object Devirtualization {
             return functionNodesMap.getOrPut(node) {
                 when (node) {
                     is FunctionTemplateBody.Node.Const ->
-                        ConstraintGraph.Node.Const(constraintGraph.nextId(), "Const\$${function.id}", ConstraintGraph.Type.concrete(node.type.resolved())).also {
+                        ConstraintGraph.Node.Source(constraintGraph.nextId(), "Ordinary\$${function.id}", ConstraintGraph.Type.concrete(node.type.resolved())).also {
                             constraintGraph.addNode(it)
                         }
 
@@ -1523,7 +1576,7 @@ internal object Devirtualization {
                         val returnType = node.returnType.resolved()
                         val instanceNode = constraintGraph.concreteClasses.getOrPut(returnType) {
                             val instanceType = ConstraintGraph.Type.concrete(returnType)
-                            ConstraintGraph.Node.Const(constraintGraph.nextId(), "Class\$${node.returnType}", instanceType).also {
+                            ConstraintGraph.Node.Source(constraintGraph.nextId(), "Class\$${node.returnType}", instanceType).also {
                                 constraintGraph.addNode(it)
                             }
                         }
@@ -1580,7 +1633,7 @@ internal object Devirtualization {
                                 val result = if (callees.size == 1) {
                                     doCall(callees[0], listOf(castedReceiver) + node.arguments.drop(1), returnType, possibleReceiverTypes.single())
                                 } else {
-                                    val returns = ConstraintGraph.Node.Const(constraintGraph.nextId(), "VirtualCallReturns\$${function.id}").also {
+                                    val returns = ConstraintGraph.Node.Ordinary(constraintGraph.nextId(), "VirtualCallReturns\$${function.id}").also {
                                         constraintGraph.addNode(it)
                                     }
                                     callees.forEachIndexed { index, actualCallee ->
@@ -1602,7 +1655,7 @@ internal object Devirtualization {
                     is FunctionTemplateBody.Node.Singleton -> {
                         val type = node.type.resolved()
                         constraintGraph.concreteClasses.getOrPut(type) {
-                            ConstraintGraph.Node.Const(constraintGraph.nextId(), "Class\$$type", ConstraintGraph.Type.concrete(type)).also {
+                            ConstraintGraph.Node.Source(constraintGraph.nextId(), "Class\$$type", ConstraintGraph.Type.concrete(type)).also {
                                 constraintGraph.addNode(it)
                             }
                         }
@@ -1610,14 +1663,14 @@ internal object Devirtualization {
 
                     is FunctionTemplateBody.Node.FieldRead ->
                         constraintGraph.fields.getOrPut(node.field) {
-                            ConstraintGraph.Node.Const(constraintGraph.nextId(), "Field\$${node.field}").also {
+                            ConstraintGraph.Node.Ordinary(constraintGraph.nextId(), "Field\$${node.field}").also {
                                 constraintGraph.addNode(it)
                             }
                         }
 
                     is FunctionTemplateBody.Node.FieldWrite -> {
                         val fieldNode = constraintGraph.fields.getOrPut(node.field) {
-                            ConstraintGraph.Node.Const(constraintGraph.nextId(), "Field\$${node.field}").also {
+                            ConstraintGraph.Node.Ordinary(constraintGraph.nextId(), "Field\$${node.field}").also {
                                 constraintGraph.addNode(it)
                             }
                         }
@@ -1627,7 +1680,7 @@ internal object Devirtualization {
 
                     is FunctionTemplateBody.Node.TempVariable ->
                         node.values.map { edgeToConstraintNode(it) }.let { values ->
-                            ConstraintGraph.Node.Const(constraintGraph.nextId(), "TempVar\$${function.id}").also { node ->
+                            ConstraintGraph.Node.Ordinary(constraintGraph.nextId(), "TempVar\$${function.id}").also { node ->
                                 constraintGraph.addNode(node)
                                 values.forEach { it.addEdge(node) }
                             }
