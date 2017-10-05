@@ -22,6 +22,7 @@ import org.jetbrains.kotlin.backend.konan.library.resolveLibrariesRecursive
 import org.jetbrains.kotlin.konan.file.File
 import org.jetbrains.kotlin.konan.properties.loadProperties
 import org.jetbrains.kotlin.konan.target.TargetManager
+import org.jetbrains.kotlin.native.interop.gen.defFileDependencies
 import org.jetbrains.kotlin.utils.addIfNotNull
 import org.jetbrains.kotlin.cli.bc.main as konancMain
 import org.jetbrains.kotlin.native.interop.gen.jvm.interop 
@@ -112,6 +113,8 @@ fun main(args: Array<String>) {
             invokeCinterop(utilityArgs)
         "klib" ->
             klibMain(utilityArgs)
+        "defFileDependencies" ->
+            defFileDependencies(utilityArgs)
         else ->
             error("Unexpected utility name")
     }

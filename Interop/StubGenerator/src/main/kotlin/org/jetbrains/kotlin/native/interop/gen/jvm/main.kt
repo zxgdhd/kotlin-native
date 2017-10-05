@@ -18,8 +18,7 @@ package org.jetbrains.kotlin.native.interop.gen.jvm
 
 import org.jetbrains.kotlin.native.interop.tool.*
 import org.jetbrains.kotlin.konan.util.DefFile
-import org.jetbrains.kotlin.native.interop.gen.HeadersInclusionPolicyImpl
-import org.jetbrains.kotlin.native.interop.gen.ImportsImpl
+import org.jetbrains.kotlin.native.interop.gen.*
 import org.jetbrains.kotlin.native.interop.indexer.*
 import java.io.File
 import java.lang.IllegalArgumentException

@@ -542,3 +542,66 @@ internal fun CValue<CXSourceLocation>.getContainingFile(): CXFile? = memScoped {
     clang_getFileLocation(this@getContainingFile, fileVar.ptr, null, null, null)
     fileVar.value
 }
+
+class SplittedNativeLibrary(val library: NativeLibrary, val ownHeaders: Set<String>, val foreignHeaders: Set<String>) {
+    val allHeaders get() = ownHeaders + foreignHeaders
+}
+
+fun NativeLibrary.split(): SplittedNativeLibrary {
+
+    val index = clang_createIndex(0, 0)!!
+    try {
+        val translationUnit =
+                this.parse(index, options = CXTranslationUnit_DetailedPreprocessingRecord).ensureNoCompileErrors()
+        try {
+
+            val BUILTINS = "<builtins>"
+
+            val ownHeaders = getFilteredHeaders(NativeIndexImpl(this), index, translationUnit).map {
+                if (it == null) {
+                    BUILTINS
+                } else {
+                    clang_getFileName(it).convertAndDispose()
+                }
+            }.toSet()
+            val allHeaders = mutableSetOf<String>(BUILTINS)
+            indexTranslationUnit(index, translationUnit, 0, object : Indexer {
+                override fun ppIncludedFile(info: CXIdxIncludedFileInfo) {
+                    allHeaders.add(clang_getFileName(info.file!!).convertAndDispose())
+                }
+            })
+
+            return SplittedNativeLibrary(
+                    this,
+                    ownHeaders = ownHeaders,
+                    foreignHeaders = allHeaders - ownHeaders
+            )
+
+        } finally {
+            clang_disposeTranslationUnit(translationUnit)
+        }
+    } finally {
+        clang_disposeIndex(index)
+    }
+}
+
+fun NativeLibrary.getIncludedHeaders(): Set<String> {
+    val result = mutableSetOf<String>()
+    val index = clang_createIndex(0, 0)!!
+    try {
+        val translationUnit = this.parse(index, options = CXTranslationUnit_DetailedPreprocessingRecord)
+        try {
+            indexTranslationUnit(index, translationUnit, 0, object : Indexer {
+                override fun ppIncludedFile(info: CXIdxIncludedFileInfo) {
+                    result.add(clang_getFileName(info.file!!).convertAndDispose())
+                }
+            })
+        } finally {
+            clang_disposeTranslationUnit(translationUnit)
+        }
+    } finally {
+        clang_disposeIndex(index)
+    }
+
+    return result
+}
