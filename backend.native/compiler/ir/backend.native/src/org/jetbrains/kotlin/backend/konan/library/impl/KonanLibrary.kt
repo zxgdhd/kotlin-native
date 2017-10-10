@@ -37,13 +37,18 @@ open class ZippedKonanLibrary(val klibFile: File, override val target: KonanTarg
        klibFile.asZipRoot
     }
 
+    /**
+     * TODO: here should be more smart...
+     * two styles of installing klib and so on.
+     *
+     */
     fun unpackTo(newDir: File) {
-        if (newDir.exists) {
-            if (newDir.isDirectory) 
-                newDir.deleteRecursively()
-            else 
-                newDir.delete()
-        }
+        //if (newDir.exists) {
+        //    if (newDir.isDirectory)
+        //        newDir.deleteRecursively()
+        //    else
+        //        newDir.delete()
+        //}
         libDir.recursiveCopyTo(newDir)
         if (!newDir.exists) error("Could not unpack $klibFile as $newDir.")
     }
