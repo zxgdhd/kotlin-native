@@ -115,7 +115,15 @@ class Library(val name: String, val requestedRepository: String?, val target: St
             null
 
         }
-        reader?.libDir?.deleteRecursively()
+        reader?.run {
+            if (targetList.size == 1 && targetList.contains(this@Library.target))
+                    libDir.deleteRecursively()
+            else {
+                targetList.singleOrNull{ it == this@Library.target }?.let {
+                    File(it).deleteRecursively()
+                }
+            }
+        }
     }
 
     fun contents() {
