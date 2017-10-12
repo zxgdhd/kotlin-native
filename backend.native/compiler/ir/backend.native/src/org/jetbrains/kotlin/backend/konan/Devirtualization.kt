@@ -451,11 +451,11 @@ internal object Devirtualization {
         fun mapType(type: KotlinType) =
                 mapClass(type.erasure().single().constructor.declarationDescriptor as ClassDescriptor)
 
+        // TODO: use from LlvmDeclarations.
         private fun getFqName(descriptor: DeclarationDescriptor): FqName {
             if (descriptor is PackageFragmentDescriptor) {
                 return descriptor.fqName
             }
-
 
             val containingDeclaration = descriptor.containingDeclaration
             val parent = if (containingDeclaration != null) {
@@ -489,7 +489,7 @@ internal object Devirtualization {
                             if (it.isExported())
                                 FunctionTemplateBody.FunctionId.Public(it.symbolName, module, symbolTableIndex)
                             else
-                                FunctionTemplateBody.FunctionId.Private(getFqName(it).asString() + "#internal"/*it.functionName*/, privateFunIndex++, module, symbolTableIndex)
+                                FunctionTemplateBody.FunctionId.Private(getFqName(it).asString() + "#internal", privateFunIndex++, module, symbolTableIndex)
                         }
                     }
 
