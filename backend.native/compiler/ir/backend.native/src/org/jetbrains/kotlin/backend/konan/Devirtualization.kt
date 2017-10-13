@@ -1086,10 +1086,18 @@ internal object Devirtualization {
                 val types = mutableSetOf<Type>()
                 val edges = mutableSetOf<Node>()
                 val reversedEdges = mutableSetOf<Node>()
+                val castEdges = mutableSetOf<CastEdge>()
+                val reversedCastEdges = mutableSetOf<CastEdge>()
+                var priority = -1
 
                 fun addEdge(node: Node) {
                     edges += node
                     node.reversedEdges += this
+                }
+
+                fun addCastEdge(edge: CastEdge) {
+                    castEdges += edge
+                    edge.node.reversedCastEdges += CastEdge(this, edge.castToType, edge.functionId)
                 }
 
                 class Source(id: Int, val name: String, type: Type): Node(id) {
@@ -1108,10 +1116,12 @@ internal object Devirtualization {
                     }
                 }
 
-                // Corresponds to an edge with a cast on it.
-                class Cast(id: Int, val castToType: FunctionTemplateBody.Type.Declared, val functionId: FunctionTemplateBody.FunctionId) : Node(id) {
-                    override fun toString() = "Cast(castToType=$castToType)\$$functionId"
-                }
+                data class CastEdge(val node: Node, val castToType: FunctionTemplateBody.Type.Declared, val functionId: FunctionTemplateBody.FunctionId)
+
+//                // Corresponds to an edge with a cast on it.
+//                class Cast(id: Int, val castToType: FunctionTemplateBody.Type.Declared, val functionId: FunctionTemplateBody.FunctionId) : Node(id) {
+//                    override fun toString() = "Cast(castToType=$castToType)\$$functionId"
+//                }
             }
 
             class MultiNode(val nodes: Set<Node>)
@@ -1237,10 +1247,7 @@ internal object Devirtualization {
                     for (node in it.value.body.nodes) {
                         println("FT NODE #${ids[node]}")
                         it.value.printNode(node, ids)
-                        val constraintNode = nodesMap[node] ?: variables[node]
-                        if (constraintNode == null) {
-                            break
-                        }
+                        val constraintNode = nodesMap[node] ?: variables[node] ?: break
                         println("       CG NODE #${constraintNode.id}: $constraintNode")
                         println()
                     }
@@ -1281,88 +1288,118 @@ internal object Devirtualization {
                 if (it is ConstraintGraph.Node.Source)
                     assert(it.reversedEdges.isEmpty(), { "A source node #${it.id} has incoming edges" })
             }
+//            println("CONSTRAINT GRAPH: ${constraintGraph.nodes.size} nodes, ${constraintGraph.nodes.sumBy { it.edges.size }} edges")
             val condensation = constraintGraph.buildCondensation()
+            val topologicalOrder = condensation.topologicalOrder.reversed()
             if (DEBUG > 0) {
                 println("CONDENSATION")
-                condensation.topologicalOrder.reversed().forEachIndexed { index, multiNode ->
+                topologicalOrder.forEachIndexed { index, multiNode ->
                     println("    MULTI-NODE #$index")
                     multiNode.nodes.forEach {
                         println("        #${it.id}: $it")
                     }
                 }
             }
-            condensation.topologicalOrder.reversed().forEachIndexed { index, multiNode ->
+            topologicalOrder.forEachIndexed { index, multiNode ->
+                multiNode.nodes.forEach { it.priority = index }
+            }
+            // Handle all 'right-directed' edges.
+            topologicalOrder.forEachIndexed { index, multiNode ->
                 if (multiNode.nodes.size == 1 && multiNode.nodes.first() is ConstraintGraph.Node.Source)
                     return@forEachIndexed
-                while (true) {
-                    // TODO: Optimize.
-                    var somethingChanged = false
-                    for (node in multiNode.nodes) {
-                        val types = mutableSetOf<ConstraintGraph.Type>()
-                        node.reversedEdges.forEach { types += it.types }
-                        if (node is ConstraintGraph.Node.Cast) {
-                            //var wasVirtualType = false
-                            val badTypes = mutableSetOf<ConstraintGraph.Type>()
-                            types.forEach {
-                                if (!it.type.isSubtypeOf(node.castToType)) {
-                                    badTypes += it
-//                                if (it.kind == ConstraintGraph.TypeKind.VIRTUAL)
-//                                    wasVirtualType = true
-                                }
-                            }
-                            types -= badTypes
-//                        if (wasVirtualType)
-//                            node.types += ConstraintGraph.Type.virtual(node.castToType)
-                        }
-                        if (node.types.size != types.size)
-                            somethingChanged = true
-                        else {
-                            if (types.any { !node.types.contains(it) })
-                                somethingChanged = true
-                        }
-                        node.types.clear()
-                        node.types += types
-                    }
-                    if (!somethingChanged) break
+                val types = mutableSetOf<ConstraintGraph.Type>()
+                for (node in multiNode.nodes) {
+                    node.reversedEdges.forEach { types += it.types }
+                    node.reversedCastEdges
+                            .filter { it.node.priority < node.priority }
+                            .forEach { (source, castToType) -> types += source.types.filter { it.type.isSubtypeOf(castToType) } }
                 }
-                if (DEBUG > 0) {
+                for (node in multiNode.nodes)
+                    node.types += types
+            }
+            val badEdges = mutableListOf<Pair<ConstraintGraph.Node, ConstraintGraph.Node.CastEdge>>()
+            for (node in constraintGraph.nodes) {
+                node.castEdges
+                        .filter { it.node.priority < node.priority } // Contradicts topological order.
+                        .forEach { badEdges += node to it }
+            }
+            badEdges.sortBy { it.second.node.priority } // Heuristic.
+
+            do {
+                fun propagateType(node: ConstraintGraph.Node, type: ConstraintGraph.Type) {
+                    node.types += type
+                    node.edges
+                            .filterNot { it.types.contains(type) }
+                            .forEach { propagateType(it, type) }
+                    node.castEdges
+                            .filterNot { it.node.types.contains(type) }
+                            .filter { type.type.isSubtypeOf(it.castToType) }
+                            .forEach { propagateType(it.node, type) }
+                }
+
+                var end = true
+                for ((sourceNode, edge) in badEdges) {
+                    val distNode = edge.node
+                    sourceNode.types
+                            .filter { !distNode.types.contains(it) }
+                            .filter { it.type.isSubtypeOf(edge.castToType) }
+                            .forEach {
+                                end = false
+                                propagateType(distNode, it)
+                            }
+                }
+            } while (!end)
+            if (DEBUG > 0) {
+                topologicalOrder.forEachIndexed { index, multiNode ->
                     println("Types of multi-node #$index")
                     multiNode.nodes.forEach {
                         println("    Node #${it.id}")
                         it.types.forEach { println("        $it") }
                     }
                 }
-//                val types = mutableSetOf<ConstraintGraph.Type>()
-//                val badTypes = mutableSetOf<ConstraintGraph.Type>()
-//                multiNode.nodes.forEach { types.addAll(it.types) }
-//                multiNode.nodes
-//                        .filterIsInstance<ConstraintGraph.Node.Cast>()
-//                        .forEach {
-//                            val castToType = it.castToType
-//                            var wasVirtualType = false
+            }
+//            condensation.topologicalOrder.reversed().forEachIndexed { index, multiNode ->
+//                if (multiNode.nodes.size == 1 && multiNode.nodes.first() is ConstraintGraph.Node.Source)
+//                    return@forEachIndexed
+//                while (true) {
+//                    // TODO: Optimize.
+//                    var somethingChanged = false
+//                    for (node in multiNode.nodes) {
+//                        val types = mutableSetOf<ConstraintGraph.Type>()
+//                        node.reversedEdges.forEach { types += it.types }
+//                        if (node is ConstraintGraph.Node.Cast) {
+//                            //var wasVirtualType = false
+//                            val badTypes = mutableSetOf<ConstraintGraph.Type>()
 //                            types.forEach {
-//                                if (!it.type.isSubtypeOf(castToType)) {
+//                                if (!it.type.isSubtypeOf(node.castToType)) {
 //                                    badTypes += it
-//                                    if (it.kind == ConstraintGraph.TypeKind.VIRTUAL)
-//                                        wasVirtualType = true
+////                                if (it.kind == ConstraintGraph.TypeKind.VIRTUAL)
+////                                    wasVirtualType = true
 //                                }
 //                            }
-//                            if (wasVirtualType)
-//                                types += ConstraintGraph.Type.virtual(castToType)
+//                            types -= badTypes
+////                        if (wasVirtualType)
+////                            node.types += ConstraintGraph.Type.virtual(node.castToType)
 //                        }
-//                types -= badTypes
+//                        if (node.types.size != types.size)
+//                            somethingChanged = true
+//                        else {
+//                            if (types.any { !node.types.contains(it) })
+//                                somethingChanged = true
+//                        }
+//                        node.types.clear()
+//                        node.types += types
+//                    }
+//                    if (!somethingChanged) break
+//                }
 //                if (DEBUG > 0) {
 //                    println("Types of multi-node #$index")
-//                    types.forEach { println("    $it") }
-//                }
-//                multiNode.nodes.forEach {
-//                    it.types.clear()
-//                    it.types += types
-//                    it.edges.forEach {
-//                        it.types += types
+//                    multiNode.nodes.forEach {
+//                        println("    Node #${it.id}")
+//                        it.types.forEach { println("        $it") }
 //                    }
 //                }
-            }
+//            }
             val result = mutableMapOf<IrCall, Pair<DevirtualizedCallSite, FunctionTemplateBody.FunctionId>>()
             val nothing = symbolTable.mapClass(context.builtIns.nothing)
             functionTemplates.values
@@ -1482,12 +1519,18 @@ internal object Devirtualization {
                                          variables: MutableMap<FunctionTemplateBody.Node.Variable, ConstraintGraph.Node>,
                                          instantiatingClasses: Collection<FunctionTemplateBody.Type.Declared>): ConstraintGraph.Node {
             val result = templateNodeToConstraintNode(function, edge.node, functionNodesMap, variables, instantiatingClasses)
-            return edge.castToType?.let {
-                val castNode = ConstraintGraph.Node.Cast(constraintGraph.nextId(), it.resolved(), function.id)
-                constraintGraph.addNode(castNode)
-                result.addEdge(castNode)
-                castNode
-            } ?: result
+            val castToType = edge.castToType ?: return result
+            val castNode = ConstraintGraph.Node.Ordinary(constraintGraph.nextId(), "Cast\$${function.id}")
+            constraintGraph.addNode(castNode)
+            val castEdge = ConstraintGraph.Node.CastEdge(castNode, castToType.resolved(), function.id)
+            result.addCastEdge(castEdge)
+            return castNode
+//            return edge.castToType?.let {
+//                val castNode = ConstraintGraph.Node.Cast(constraintGraph.nextId(), it.resolved(), function.id)
+//                constraintGraph.addNode(castNode)
+//                result.addEdge(castNode)
+//                castNode
+//            } ?: result
         }
 
         /**
@@ -1536,10 +1579,14 @@ internal object Devirtualization {
                         doCall(calleeConstraintGraph, arguments)
                     else {
                         val receiverNode = argumentToConstraintNode(arguments[0])
-                        val castedReceiver = ConstraintGraph.Node.Cast(constraintGraph.nextId(), receiverType, function.id).also {
-                            constraintGraph.addNode(it)
-                        }
-                        receiverNode.addEdge(castedReceiver)
+//                        val castedReceiver = ConstraintGraph.Node.Cast(constraintGraph.nextId(), receiverType, function.id).also {
+//                            constraintGraph.addNode(it)
+//                        }
+//                        receiverNode.addEdge(castedReceiver)
+                        val castedReceiver = ConstraintGraph.Node.Ordinary(constraintGraph.nextId(), "CastedReceiver\$${function.id}")
+                        constraintGraph.addNode(castedReceiver)
+                        val castedEdge = ConstraintGraph.Node.CastEdge(castedReceiver, receiverType, function.id)
+                        receiverNode.addCastEdge(castedEdge)
                         doCall(calleeConstraintGraph, listOf(castedReceiver) + arguments.drop(1))
                     }
                 }
@@ -1626,10 +1673,14 @@ internal object Devirtualization {
                             else {
                                 val returnType = node.returnType.resolved()
                                 val receiverNode = edgeToConstraintNode(node.arguments[0])
-                                val castedReceiver = ConstraintGraph.Node.Cast(constraintGraph.nextId(), receiverType, function.id).also {
-                                    constraintGraph.addNode(it)
-                                }
-                                receiverNode.addEdge(castedReceiver)
+//                                val castedReceiver = ConstraintGraph.Node.Cast(constraintGraph.nextId(), receiverType, function.id).also {
+//                                    constraintGraph.addNode(it)
+//                                }
+//                                receiverNode.addEdge(castedReceiver)
+                                val castedReceiver = ConstraintGraph.Node.Ordinary(constraintGraph.nextId(), "CastedReceiver\$${function.id}")
+                                constraintGraph.addNode(castedReceiver)
+                                val castedEdge = ConstraintGraph.Node.CastEdge(castedReceiver, receiverType, function.id)
+                                receiverNode.addCastEdge(castedEdge)
                                 val result = if (callees.size == 1) {
                                     doCall(callees[0], listOf(castedReceiver) + node.arguments.drop(1), returnType, possibleReceiverTypes.single())
                                 } else {
