@@ -1,0 +1,8 @@
+language = Objective-C
+package = platform.QuartzCore
+headers = QuartzCore/QuartzCore.h QuartzCore/CIImage.h QuartzCore/CIColor.h
+
+headerFilter = QuartzCore/**
+
+compilerOpts = -framework QuartzCore
+linkerOpts = -framework QuartzCore

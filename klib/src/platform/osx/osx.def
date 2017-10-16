@@ -26,6 +26,8 @@ headers = AppleTextureEncoder.h AssertMacros.h Availability.h AvailabilityIntern
     os/activity.h os/availability.h os/base.h os/lock.h \
     os/object.h os/overflow.h os/trace.h
 
+headerFilter = **
+
 compilerOpts = -D_XOPEN_SOURCE
 linkerOpts = -ldl -lz
 depends = posix

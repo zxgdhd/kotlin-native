@@ -1,0 +1,8 @@
+language = Objective-C
+package = platform.AppKit
+headers = AppKit/AppKit.h
+
+headerFilter = AppKit/**
+
+compilerOpts = -framework AppKit
+linkerOpts = -framework AppKit

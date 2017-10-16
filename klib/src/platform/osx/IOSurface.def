@@ -1,0 +1,8 @@
+language = Objective-C
+package = platform.IOSurface
+headers = IOSurface/IOSurface.h
+
+headerFilter = IOSurface/**
+
+compilerOpts = -framework IOSurface
+linkerOpts = -framework IOSurface

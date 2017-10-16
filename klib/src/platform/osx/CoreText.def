@@ -1,0 +1,8 @@
+language = Objective-C
+package = platform.CoreText
+headers = CoreText/CoreText.h
+
+headerFilter = CoreText/**
+
+compilerOpts = -framework CoreText
+linkerOpts = -framework CoreText

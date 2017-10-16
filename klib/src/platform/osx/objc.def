@@ -5,6 +5,8 @@ headers = objc/List.h objc/NSObjCRuntime.h objc/NSObject.h objc/Object.h objc/Pr
     objc/objc-class.h objc/objc-exception.h objc/objc-load.h objc/objc-runtime.h \
     objc/objc-sync.h objc/objc.h objc/runtime.h
 
+headerFilter = objc/**
+
 compilerOpts = -D_XOPEN_SOURCE
 linkerOpts = -lobjc
 depends = posix osx

@@ -1,0 +1,9 @@
+language = Objective-C
+package = platform.ApplicationServices
+headers = ApplicationServices/ApplicationServices.h
+
+headerFilter = ApplicationServices/** ATS/** ColorSync/** HIServices/** \
+    LangAnalysis/** PrintCore/** QD/** SpeechSynthesis/**
+
+compilerOpts = -framework ApplicationServices
+linkerOpts = -framework ApplicationServices

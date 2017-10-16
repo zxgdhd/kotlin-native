@@ -1,0 +1,9 @@
+language = Objective-C
+package = platform.CoreServices
+headers = CoreServices/CoreServices.h
+
+headerFilter = CoreServices/** AE/** CarbonCore/** DictionaryServices/** FSEvents/** LaunchServices/** \
+    Metadata/** OSServices/** SearchKit/** SharedFileList/**
+
+compilerOpts = -framework CoreServices
+linkerOpts = -framework CoreServices

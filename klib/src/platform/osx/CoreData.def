@@ -1,0 +1,8 @@
+language = Objective-C
+package = platform.CoreData
+headers = CoreData/CoreData.h
+
+headerFilter = CoreData/**
+
+compilerOpts = -framework CoreData
+linkerOpts = -framework CoreData
