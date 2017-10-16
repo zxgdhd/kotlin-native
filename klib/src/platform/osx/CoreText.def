@@ -1,3 +1,4 @@
+depends = CoreFoundation CoreGraphics osx posix
 language = Objective-C
 package = platform.CoreText
 headers = CoreText/CoreText.h

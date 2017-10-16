@@ -1,3 +1,4 @@
+depends = CoreFoundation CoreGraphics IOKit libkern osx posix
 language = Objective-C
 package = platform.ImageIO
 headers = ImageIO/ImageIO.h

@@ -1,3 +1,4 @@
+depends = osx posix
 language = Objective-C
 package = platform.objc
 headers = objc/List.h objc/NSObjCRuntime.h objc/NSObject.h objc/Object.h objc/Protocol.h \
@@ -9,6 +10,5 @@ headerFilter = objc/**
 
 compilerOpts = -D_XOPEN_SOURCE
 linkerOpts = -lobjc
-depends = posix osx
 ---
 // objc-auto.h is excluded so far due to interop issues.
