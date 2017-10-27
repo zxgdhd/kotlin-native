@@ -118,6 +118,7 @@ message ItableCall {
 
 message Singleton {
     required int32 type = 1;
+    optional int32 constructor = 2;
 }
 
 message FieldRead {
@@ -162,8 +163,9 @@ message FunctionTemplateBody {
 
 message FunctionTemplate {
     required int32 id = 1;
-    required int32 numberOfParameters = 2;
-    required FunctionTemplateBody body = 3;
+    required bool isGlobalInitializer = 2;
+    required int32 numberOfParameters = 3;
+    required FunctionTemplateBody body = 4;
 }
 
 message Module {

@@ -363,7 +363,7 @@ internal object Devirtualization {
                              arguments: List<Edge>, returnType: Type, callSite: IrCall?)
                 : VirtualCall(callee, arguments, returnType, receiverType, callSite)
 
-            class Singleton(val type: Type): Node()
+            class Singleton(val type: Type, val constructor: FunctionId?): Node()
 
             class FieldRead(val receiver: Edge?, val field: Field): Node()
 
@@ -500,6 +500,7 @@ internal object Devirtualization {
     }
 
     private class FunctionTemplate(val id: FunctionTemplateBody.FunctionId,
+                                   val isGlobalInitializer: Boolean,
                                    val numberOfParameters: Int,
                                    val body: FunctionTemplateBody) {
 
@@ -560,7 +561,7 @@ internal object Devirtualization {
                     val allNodes = nodes.values + variables.values + templateParameters.values + returns +
                             (if (descriptor.isSuspend) listOf(continuationParameter!!) else emptyList())
 
-                    template = FunctionTemplate(symbolTable.mapFunction(descriptor),
+                    template = FunctionTemplate(symbolTable.mapFunction(descriptor), descriptor is PropertyDescriptor,
                             templateParameters.size + if (descriptor.isSuspend) 1 else 0, FunctionTemplateBody(allNodes.distinct().toList(), returns))
                 }
 
@@ -602,7 +603,12 @@ internal object Devirtualization {
                                     is IrConst<*>,
                                     is IrFunctionReference -> FunctionTemplateBody.Node.Const(symbolTable.mapType(value.type))
 
-                                    is IrGetObjectValue -> FunctionTemplateBody.Node.Singleton(symbolTable.mapType(value.type))
+                                    is IrGetObjectValue -> FunctionTemplateBody.Node.Singleton(
+                                            symbolTable.mapType(value.type),
+                                            if (value.type.isNothing()) // Nothing is not a singleton though its instance is get with IrGetObject operation.
+                                                null
+                                            else symbolTable.mapFunction(value.descriptor.constructors.single())
+                                    )
 
                                     is IrCall -> {
                                         if (value.symbol == getContinuationSymbol) {
@@ -1033,13 +1039,16 @@ internal object Devirtualization {
         }
     }
 
-    private class ExternalAnalysisResult(val publicTypes: Map<String, FunctionTemplateBody.Type.Public>,
+    private class ExternalAnalysisResult(val allTypes: List<FunctionTemplateBody.Type.Declared>,
+                                         val publicTypes: Map<String, FunctionTemplateBody.Type.Public>,
                                          val publicFunctions: Map<String, FunctionTemplateBody.FunctionId.Public>,
                                          val functionTemplates: Map<FunctionTemplateBody.FunctionId, FunctionTemplate>)
 
     private class InterproceduralAnalysis(val context: Context,
                                           val externalAnalysisResult: ExternalAnalysisResult,
                                           val intraproceduralAnalysisResult: IntraproceduralAnalysisResult) {
+
+        private val hasMain = context.config.configuration.get(KonanConfigKeys.PRODUCE) == CompilerOutputKind.PROGRAM
 
         private val symbolTable = intraproceduralAnalysisResult.symbolTable
 
@@ -1216,52 +1225,187 @@ internal object Devirtualization {
             return this == other || this.superTypes.any { it.resolved().isSubtypeOf(other) }
         }
 
-        private fun getInstantiatingClasses(functionTemplates: Map<FunctionTemplateBody.FunctionId, FunctionTemplate>)
-                : Set<FunctionTemplateBody.Type.Declared> {
-            val instantiatingClasses = mutableSetOf<FunctionTemplateBody.Type.Declared>()
-            functionTemplates.values
-                    .asSequence()
-                    .flatMap { it.body.nodes.asSequence() }
-                    .forEach {
-                        if (it is FunctionTemplateBody.Node.NewObject)
-                            instantiatingClasses += it.returnType.resolved()
-                        else if (it is FunctionTemplateBody.Node.Singleton)
-                            instantiatingClasses += it.type.resolved()
+        private inner class TypeHierarchy(types: List<FunctionTemplateBody.Type.Declared>) {
+            private val typesSubTypes = mutableMapOf<FunctionTemplateBody.Type.Declared, MutableList<FunctionTemplateBody.Type.Declared>>()
+
+            init {
+                val visited = mutableSetOf<FunctionTemplateBody.Type.Declared>()
+
+                fun processType(type: FunctionTemplateBody.Type.Declared) {
+                    if (type == FunctionTemplateBody.Type.Virtual) return
+                    if (!visited.add(type)) return
+                    type.superTypes
+                            .map { it.resolved() }
+                            .forEach { superType ->
+                                val subTypes = typesSubTypes.getOrPut(superType, { mutableListOf() })
+                                subTypes += type
+                                processType(superType)
+                            }
+                }
+
+                types.forEach { processType(it) }
+            }
+
+            private fun findAllInheritors(type: FunctionTemplateBody.Type.Declared, result: MutableSet<FunctionTemplateBody.Type.Declared>) {
+                if (!result.add(type)) return
+                typesSubTypes[type]?.forEach { findAllInheritors(it, result) }
+            }
+
+            fun inheritorsOf(type: FunctionTemplateBody.Type.Declared): List<FunctionTemplateBody.Type.Declared> {
+                val result = mutableSetOf<FunctionTemplateBody.Type.Declared>()
+                findAllInheritors(type, result)
+                return result.toList()
+            }
+        }
+
+        private inner class InstantiationsSearcher(val functionTemplates: Map<FunctionTemplateBody.FunctionId, FunctionTemplate>,
+                                                   val typeHierarchy: TypeHierarchy) {
+            private val visited = mutableSetOf<FunctionTemplateBody.FunctionId>()
+            private val typesVirtualCallSites = mutableMapOf<FunctionTemplateBody.Type.Declared, MutableList<FunctionTemplateBody.Node.VirtualCall>>()
+            private val instantiatingClasses = mutableSetOf<FunctionTemplateBody.Type.Declared>()
+
+            fun search(): Set<FunctionTemplateBody.Type.Declared> {
+                // Rapid Type Analysis: find all instantiations and conservatively estimate call graph.
+                instantiatingClasses.clear()
+
+                if (hasMain) {
+                    // Optimistic algorithm: traverse call graph from the roots - the entry point and all global initializers.
+                    visited.clear()
+                    typesVirtualCallSites.clear()
+
+                    dfs(symbolTable.mapFunction(findMainEntryPoint(context)!!))
+
+                    functionTemplates.values
+                            .filter { it.isGlobalInitializer }
+                            .forEach { dfs(it.id) }
+                } else {
+                    // For a library assume the worst: find every instantiation and singleton and consider all of them possible.
+                    functionTemplates.values
+                            .asSequence()
+                            .flatMap { it.body.nodes.asSequence() }
+                            .forEach {
+                                if (it is FunctionTemplateBody.Node.NewObject)
+                                    instantiatingClasses += it.returnType.resolved()
+                                else if (it is FunctionTemplateBody.Node.Singleton)
+                                    instantiatingClasses += it.type.resolved()
+                            }
+                }
+                addInstantiatingClass(symbolTable.mapClass(context.builtIns.string).resolved())
+                return instantiatingClasses
+            }
+
+            private fun addInstantiatingClass(type: FunctionTemplateBody.Type) {
+                val resolvedType = type.resolved()
+                if (!instantiatingClasses.add(resolvedType)) return
+//                println("Adding instantiating class: $resolvedType")
+                checkSupertypes(resolvedType, resolvedType, mutableSetOf())
+            }
+
+            private fun processVirtualCall(virtualCall: FunctionTemplateBody.Node.VirtualCall,
+                                           receiverType: FunctionTemplateBody.Type.Declared) {
+                val callee = when (virtualCall) {
+                    is FunctionTemplateBody.Node.VtableCall ->
+                        receiverType.vtable[virtualCall.calleeVtableIndex]
+
+                    is FunctionTemplateBody.Node.ItableCall -> {
+                        if (receiverType.itable[virtualCall.calleeHash] == null) {
+                            println("BUGBUGBUG: $receiverType, HASH=${virtualCall.calleeHash}")
+                            receiverType.itable.forEach { hash, impl ->
+                                println("HASH: $hash, IMPL: $impl")
+                            }
+                        }
+                        receiverType.itable[virtualCall.calleeHash]!!
                     }
-            instantiatingClasses += symbolTable.mapClass(context.builtIns.string).resolved()
-            return instantiatingClasses
+
+                    else -> error("Unreachable")
+                }
+                dfs(callee)
+            }
+
+            private fun checkSupertypes(type: FunctionTemplateBody.Type.Declared,
+                                        inheritor: FunctionTemplateBody.Type.Declared,
+                                        seenTypes: MutableSet<FunctionTemplateBody.Type.Declared>) {
+                seenTypes += type
+                typesVirtualCallSites[type]?.toList()?.forEach { processVirtualCall(it, inheritor) }
+                typesVirtualCallSites[type]?.let { virtualCallSites ->
+                    var index = 0
+                    while (index < virtualCallSites.size) {
+                        processVirtualCall(virtualCallSites[index], inheritor)
+                        ++index
+                    }
+                }
+                type.superTypes
+                        .map { it.resolved() }
+                        .filterNot { seenTypes.contains(it) }
+                        .forEach { checkSupertypes(it, inheritor, seenTypes) }
+            }
+
+            private fun dfs(functionId: FunctionTemplateBody.FunctionId) {
+                val resolvedFunctionId = functionId.resolved()
+                if (resolvedFunctionId is FunctionTemplateBody.FunctionId.External) return
+                if (!visited.add(resolvedFunctionId)) return
+//                println("Visiting $resolvedFunctionId")
+                val functionTemplate = functionTemplates[resolvedFunctionId]!!
+                nodeLoop@for (node in functionTemplate.body.nodes) {
+                    when (node) {
+                        is FunctionTemplateBody.Node.NewObject -> {
+                            addInstantiatingClass(node.returnType)
+                            dfs(node.callee)
+                        }
+
+                        is FunctionTemplateBody.Node.Singleton -> {
+                            addInstantiatingClass(node.type)
+                            node.constructor?.let { dfs(it) }
+                        }
+
+                        is FunctionTemplateBody.Node.StaticCall -> dfs(node.callee)
+
+                        is FunctionTemplateBody.Node.VirtualCall -> {
+                            if (node.receiverType == FunctionTemplateBody.Type.Virtual)
+                                continue@nodeLoop
+                            val receiverType = node.receiverType.resolved()
+                            typeHierarchy.inheritorsOf(receiverType)
+                                    .filter { instantiatingClasses.contains(it) }
+                                    .forEach { processVirtualCall(node, it) }
+//                            println("Adding virtual callsite:")
+//                            println("    Receiver: $receiverType")
+//                            println("    Callee: ${node.callee}")
+//                            println("    Inheritors:")
+//                            typeHierarchy.inheritorsOf(receiverType).forEach { println("        $it") }
+                            typesVirtualCallSites.getOrPut(receiverType, { mutableListOf() }).add(node)
+                        }
+                    }
+                }
+            }
         }
 
         fun analyze(irModule: IrModuleFragment): Map<IrCall, DevirtualizedCallSite> {
-            // Rapid Type Analysis: find all instantiations and conservatively estimate call graph.
             val functionTemplates = intraproceduralAnalysisResult.functionTemplates + externalAnalysisResult.functionTemplates
-            val instantiatingClasses = getInstantiatingClasses(functionTemplates)
+            val typeHierarchy = TypeHierarchy(symbolTable.classMap.values.filterIsInstance<FunctionTemplateBody.Type.Declared>() +
+                                              externalAnalysisResult.allTypes)
+            val instantiatingClasses = InstantiationsSearcher(functionTemplates, typeHierarchy).search()
+            val rootSet = getRootSet(irModule)
 
             val nodesMap = mutableMapOf<FunctionTemplateBody.Node, ConstraintGraph.Node>()
             val variables = mutableMapOf<FunctionTemplateBody.Node.Variable, ConstraintGraph.Node>()
-            functionTemplates.entries.forEach {
-                buildFunctionConstraintGraph(it.key, nodesMap, variables, instantiatingClasses)
-                if (DEBUG > 0) {
-                    println("CONSTRAINT GRAPH FOR ${it.key}")
-                    val ids = it.value.body.nodes.withIndex().associateBy({ it.value }, { it.index })
-                    for (node in it.value.body.nodes) {
-                        println("FT NODE #${ids[node]}")
-                        it.value.printNode(node, ids)
-                        val constraintNode = nodesMap[node] ?: variables[node] ?: break
-                        println("       CG NODE #${constraintNode.id}: $constraintNode")
-                        println()
-                    }
-                    println("Returns: #${ids[it.value.body.returns]}")
-                    println()
-                }
-            }
-            val rootSet = getRootSet(irModule)
             rootSet.filterIsInstance<FunctionDescriptor>()
                     .forEach {
                         val functionId = symbolTable.mapFunction(it).resolved()
-                        if (constraintGraph.functions[functionId] == null)
-                            println("BUGBUGBUG: $it, $functionId")
-                        val function = constraintGraph.functions[functionId]!!
+                        val function = buildFunctionConstraintGraph(functionId, nodesMap, variables, instantiatingClasses)!!
+                        if (DEBUG > 0) {
+                            println("CONSTRAINT GRAPH FOR ${it}")
+                            val functionTemplate = functionTemplates[functionId]!!
+                            val ids = functionTemplate.body.nodes.withIndex().associateBy({ it.value }, { it.index })
+                            for (node in functionTemplate.body.nodes) {
+                                println("FT NODE #${ids[node]}")
+                                functionTemplate.printNode(node, ids)
+                                val constraintNode = nodesMap[node] ?: variables[node] ?: break
+                                println("       CG NODE #${constraintNode.id}: $constraintNode")
+                                println()
+                            }
+                            println("Returns: #${ids[functionTemplate.body.returns]}")
+                            println()
+                        }
                         it.allParameters.forEachIndexed { index, parameter ->
                             parameter.type.erasure().forEach {
                                 val parameterType = symbolTable.mapClass(it.constructor.declarationDescriptor as ClassDescriptor).resolved()
@@ -1272,6 +1416,26 @@ internal object Devirtualization {
                                 }
                                 node.addEdge(function.parameters[index])
                             }
+                        }
+                    }
+            functionTemplates.values
+                    .filter { it.isGlobalInitializer }
+                    .forEach {
+                        val functionId = it.id
+                        buildFunctionConstraintGraph(functionId, nodesMap, variables, instantiatingClasses)!!
+                        if (DEBUG > 0) {
+                            println("CONSTRAINT GRAPH FOR ${functionId}")
+                            val functionTemplate = it
+                            val ids = functionTemplate.body.nodes.withIndex().associateBy({ it.value }, { it.index })
+                            for (node in functionTemplate.body.nodes) {
+                                println("FT NODE #${ids[node]}")
+                                functionTemplate.printNode(node, ids)
+                                val constraintNode = nodesMap[node] ?: variables[node] ?: break
+                                println("       CG NODE #${constraintNode.id}: $constraintNode")
+                                println()
+                            }
+                            println("Returns: #${ids[functionTemplate.body.returns]}")
+                            println()
                         }
                     }
             if (DEBUG > 0) {
@@ -1288,7 +1452,7 @@ internal object Devirtualization {
                 if (it is ConstraintGraph.Node.Source)
                     assert(it.reversedEdges.isEmpty(), { "A source node #${it.id} has incoming edges" })
             }
-//            println("CONSTRAINT GRAPH: ${constraintGraph.nodes.size} nodes, ${constraintGraph.nodes.sumBy { it.edges.size }} edges")
+            println("CONSTRAINT GRAPH: ${constraintGraph.nodes.size} nodes, ${constraintGraph.nodes.sumBy { it.edges.size }} edges")
             val condensation = constraintGraph.buildCondensation()
             val topologicalOrder = condensation.topologicalOrder.reversed()
             if (DEBUG > 0) {
@@ -1358,52 +1522,11 @@ internal object Devirtualization {
                     }
                 }
             }
-//            condensation.topologicalOrder.reversed().forEachIndexed { index, multiNode ->
-//                if (multiNode.nodes.size == 1 && multiNode.nodes.first() is ConstraintGraph.Node.Source)
-//                    return@forEachIndexed
-//                while (true) {
-//                    // TODO: Optimize.
-//                    var somethingChanged = false
-//                    for (node in multiNode.nodes) {
-//                        val types = mutableSetOf<ConstraintGraph.Type>()
-//                        node.reversedEdges.forEach { types += it.types }
-//                        if (node is ConstraintGraph.Node.Cast) {
-//                            //var wasVirtualType = false
-//                            val badTypes = mutableSetOf<ConstraintGraph.Type>()
-//                            types.forEach {
-//                                if (!it.type.isSubtypeOf(node.castToType)) {
-//                                    badTypes += it
-////                                if (it.kind == ConstraintGraph.TypeKind.VIRTUAL)
-////                                    wasVirtualType = true
-//                                }
-//                            }
-//                            types -= badTypes
-////                        if (wasVirtualType)
-////                            node.types += ConstraintGraph.Type.virtual(node.castToType)
-//                        }
-//                        if (node.types.size != types.size)
-//                            somethingChanged = true
-//                        else {
-//                            if (types.any { !node.types.contains(it) })
-//                                somethingChanged = true
-//                        }
-//                        node.types.clear()
-//                        node.types += types
-//                    }
-//                    if (!somethingChanged) break
-//                }
-//                if (DEBUG > 0) {
-//                    println("Types of multi-node #$index")
-//                    multiNode.nodes.forEach {
-//                        println("    Node #${it.id}")
-//                        it.types.forEach { println("        $it") }
-//                    }
-//                }
-//            }
             val result = mutableMapOf<IrCall, Pair<DevirtualizedCallSite, FunctionTemplateBody.FunctionId>>()
             val nothing = symbolTable.mapClass(context.builtIns.nothing)
             functionTemplates.values
                     .asSequence()
+                    .filter { constraintGraph.functions.containsKey(it.id) }
                     .flatMap { it.body.nodes.asSequence() }
                     .filterIsInstance<FunctionTemplateBody.Node.VirtualCall>()
                     .forEach {
@@ -1525,12 +1648,6 @@ internal object Devirtualization {
             val castEdge = ConstraintGraph.Node.CastEdge(castNode, castToType.resolved(), function.id)
             result.addCastEdge(castEdge)
             return castNode
-//            return edge.castToType?.let {
-//                val castNode = ConstraintGraph.Node.Cast(constraintGraph.nextId(), it.resolved(), function.id)
-//                constraintGraph.addNode(castNode)
-//                result.addEdge(castNode)
-//                castNode
-//            } ?: result
         }
 
         /**
@@ -1579,10 +1696,6 @@ internal object Devirtualization {
                         doCall(calleeConstraintGraph, arguments)
                     else {
                         val receiverNode = argumentToConstraintNode(arguments[0])
-//                        val castedReceiver = ConstraintGraph.Node.Cast(constraintGraph.nextId(), receiverType, function.id).also {
-//                            constraintGraph.addNode(it)
-//                        }
-//                        receiverNode.addEdge(castedReceiver)
                         val castedReceiver = ConstraintGraph.Node.Ordinary(constraintGraph.nextId(), "CastedReceiver\$${function.id}")
                         constraintGraph.addNode(castedReceiver)
                         val castedEdge = ConstraintGraph.Node.CastEdge(castedReceiver, receiverType, function.id)
@@ -1673,10 +1786,6 @@ internal object Devirtualization {
                             else {
                                 val returnType = node.returnType.resolved()
                                 val receiverNode = edgeToConstraintNode(node.arguments[0])
-//                                val castedReceiver = ConstraintGraph.Node.Cast(constraintGraph.nextId(), receiverType, function.id).also {
-//                                    constraintGraph.addNode(it)
-//                                }
-//                                receiverNode.addEdge(castedReceiver)
                                 val castedReceiver = ConstraintGraph.Node.Ordinary(constraintGraph.nextId(), "CastedReceiver\$${function.id}")
                                 constraintGraph.addNode(castedReceiver)
                                 val castedEdge = ConstraintGraph.Node.CastEdge(castedReceiver, receiverType, function.id)
@@ -1845,6 +1954,7 @@ internal object Devirtualization {
         for (functionTemplate in intraproceduralAnalysisResult.functionTemplates.values) {
             val functionTemplateBuilder = ModuleDevirtualizationAnalysisResult.FunctionTemplate.newBuilder()
             functionTemplateBuilder.id = functionIdMap[functionTemplate.id]!!
+            functionTemplateBuilder.isGlobalInitializer = functionTemplate.isGlobalInitializer
             functionTemplateBuilder.numberOfParameters = functionTemplate.numberOfParameters
             val bodyBuilder = ModuleDevirtualizationAnalysisResult.FunctionTemplateBody.newBuilder()
             val body = functionTemplate.body
@@ -1933,6 +2043,7 @@ internal object Devirtualization {
                     is FunctionTemplateBody.Node.Singleton -> {
                         val singletonBuilder = ModuleDevirtualizationAnalysisResult.Singleton.newBuilder()
                         singletonBuilder.type = typeMap[node.type]!!
+                        node.constructor?.let { singletonBuilder.constructor = functionIdMap[it]!! }
                         nodeBuilder.setSingleton(singletonBuilder)
                     }
 
@@ -1977,6 +2088,7 @@ internal object Devirtualization {
         var privateTypeIndex = intraproceduralAnalysisResult.symbolTable.privateTypeIndex
         var privateFunIndex = intraproceduralAnalysisResult.symbolTable.privateFunIndex
         val publicTypesMap = mutableMapOf<String, FunctionTemplateBody.Type.Public>()
+        val allTypes = mutableListOf<FunctionTemplateBody.Type.Declared>()
         val publicFunctionsMap = mutableMapOf<String, FunctionTemplateBody.FunctionId.Public>()
         val functionTemplates = mutableMapOf<FunctionTemplateBody.FunctionId, FunctionTemplate>()
         val specifics = context.config.configuration.get(CommonConfigurationKeys.LANGUAGE_VERSION_SETTINGS)!!
@@ -2001,10 +2113,13 @@ internal object Devirtualization {
                         ModuleDevirtualizationAnalysisResult.Type.TypeCase.PUBLIC ->
                             FunctionTemplateBody.Type.Public(it.public.name, it.public.intestines.isFinal, it.public.intestines.isAbstract).also {
                                 publicTypesMap.put(it.name, it)
+                                allTypes += it
                             }
 
                         ModuleDevirtualizationAnalysisResult.Type.TypeCase.PRIVATE ->
-                            FunctionTemplateBody.Type.Private(it.private.name, privateTypeIndex++, it.private.intestines.isFinal, it.private.intestines.isAbstract)
+                            FunctionTemplateBody.Type.Private(it.private.name, privateTypeIndex++, it.private.intestines.isFinal, it.private.intestines.isAbstract).also {
+                                allTypes += it
+                            }
 
                         else -> error("Unknown type: ${it.typeCase}")
                     }
@@ -2138,7 +2253,8 @@ internal object Devirtualization {
                             }
 
                             ModuleDevirtualizationAnalysisResult.Node.NodeCase.SINGLETON -> {
-                                FunctionTemplateBody.Node.Singleton(types[it.singleton.type])
+                                FunctionTemplateBody.Node.Singleton(types[it.singleton.type],
+                                        if (it.singleton.hasConstructor()) functionIds[it.singleton.constructor] else null)
                             }
 
                             ModuleDevirtualizationAnalysisResult.Node.NodeCase.FIELDREAD -> {
@@ -2226,14 +2342,14 @@ internal object Devirtualization {
 
                 moduleDevirtualizationAnalysisResult.functionTemplatesList.forEach {
                     val id = functionIds[it.id]
-                    functionTemplates.put(id, FunctionTemplate(id, it.numberOfParameters, deserializeBody(it.body)))
+                    functionTemplates.put(id, FunctionTemplate(id, it.isGlobalInitializer, it.numberOfParameters, deserializeBody(it.body)))
                 }
             }
         }
         intraproceduralAnalysisResult.symbolTable.privateTypeIndex = privateTypeIndex
         intraproceduralAnalysisResult.symbolTable.privateFunIndex = privateFunIndex
 
-        val externalAnalysisResult = ExternalAnalysisResult(publicTypesMap, publicFunctionsMap, functionTemplates)
+        val externalAnalysisResult = ExternalAnalysisResult(allTypes, publicTypesMap, publicFunctionsMap, functionTemplates)
         val privateFunctions = intraproceduralAnalysisResult.symbolTable.functionMap
                 .asSequence()
                 .filter { it.key is FunctionDescriptor }
