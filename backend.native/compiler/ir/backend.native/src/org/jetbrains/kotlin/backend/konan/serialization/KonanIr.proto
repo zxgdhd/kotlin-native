@@ -116,6 +116,10 @@ message IrCallableReference {
     required TypeMap type_map = 2;
 }
 
+message IrClassReference {
+    required KotlinDescriptor class_descriptor = 1;
+}
+
 message IrConst {
     oneof value {
         bool    null = 1;
@@ -235,6 +239,7 @@ message IrOperation {
         IrBreak break = 2;
         IrCall call = 3;
         IrCallableReference callable_reference = 4;
+        IrClassReference class_reference = 25;
         IrConst const = 5;
         IrContinue continue = 6;
         IrDelegatingConstructorCall delegating_constructor_call = 7;
