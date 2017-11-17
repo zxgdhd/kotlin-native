@@ -36,12 +36,11 @@ object KonanPlatformConfigurator : PlatformConfigurator(
         additionalTypeCheckers = listOf(),
         additionalClassifierUsageCheckers = listOf(),
         additionalAnnotationCheckers = listOf(),
-        identifierChecker = IdentifierChecker.Default,
-        overloadFilter = OverloadFilter.Default,
+        identifierChecker = IdentifierChecker.DEFAULT,
+        overloadFilter = OverloadFilter.DEFAULT,
         platformToKotlinClassMap = PlatformToKotlinClassMap.EMPTY,
-        delegationFilter = DelegationFilter.Default,
-        overridesBackwardCompatibilityHelper = OverridesBackwardCompatibilityHelper.Default,
-        declarationReturnTypeSanitizer = DeclarationReturnTypeSanitizer.Default
+        delegationFilter = DelegationFilter.DEFAULT,
+        overridesBackwardCompatibilityHelper = OverridesBackwardCompatibilityHelper.DEFAULT
 ) {
     override fun configureModuleComponents(container: StorageComponentContainer) {
         container.useInstance(SyntheticScopes.Empty)

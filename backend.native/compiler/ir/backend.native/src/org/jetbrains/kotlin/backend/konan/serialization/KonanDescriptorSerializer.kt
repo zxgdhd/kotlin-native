@@ -31,13 +31,11 @@ import org.jetbrains.kotlin.protobuf.MessageLite
 import org.jetbrains.kotlin.resolve.DescriptorUtils
 import org.jetbrains.kotlin.resolve.DescriptorUtils.isEnumEntry
 import org.jetbrains.kotlin.resolve.MemberComparator
-import org.jetbrains.kotlin.resolve.RequireKotlinNames
-import org.jetbrains.kotlin.resolve.checkers.KotlinVersionStringAnnotationValueChecker
 import org.jetbrains.kotlin.resolve.constants.EnumValue
 import org.jetbrains.kotlin.resolve.constants.IntValue
 import org.jetbrains.kotlin.resolve.constants.NullValue
 import org.jetbrains.kotlin.resolve.constants.StringValue
-import org.jetbrains.kotlin.serialization.deserialization.descriptors.VersionRequirement
+import org.jetbrains.kotlin.serialization.deserialization.descriptors.SinceKotlinInfo
 import org.jetbrains.kotlin.types.*
 import org.jetbrains.kotlin.types.typeUtil.contains
 import org.jetbrains.kotlin.utils.Interner
@@ -49,7 +47,7 @@ class KonanDescriptorSerializer private constructor(
         private val typeParameters: Interner<TypeParameterDescriptor>,
         private val extension: SerializerExtension,
         private val typeTable: MutableTypeTable,
-        private val versionRequirementTable: MutableVersionRequirementTable,
+        private val sinceKotlinInfoTable: MutableSinceKotlinInfoTable,
         private val serializeTypeTableToFunction: Boolean
 ) {
     fun serialize(message: MessageLite): ByteArray {
@@ -60,7 +58,7 @@ class KonanDescriptorSerializer private constructor(
     }
 
     fun createChildSerializer(descriptor: DeclarationDescriptor): KonanDescriptorSerializer =
-            KonanDescriptorSerializer(descriptor, Interner(typeParameters), extension, typeTable, versionRequirementTable,
+            KonanDescriptorSerializer(descriptor, Interner(typeParameters), extension, typeTable, sinceKotlinInfoTable,
                                  serializeTypeTableToFunction = false)
 
     val stringTable: StringTable
@@ -142,14 +140,9 @@ class KonanDescriptorSerializer private constructor(
             builder.typeTable = typeTableProto
         }
 
-        val requirement = serializeVersionRequirement(classDescriptor)
-        if (requirement != null) {
-            builder.versionRequirement = requirement
-        }
-
-        val versionRequirementTableProto = versionRequirementTable.serialize()
-        if (versionRequirementTableProto != null) {
-            builder.versionRequirementTable = versionRequirementTableProto
+        val sinceKotlinInfoProto = sinceKotlinInfoTable.serialize()
+        if (sinceKotlinInfoProto != null) {
+            builder.sinceKotlinInfoTable = sinceKotlinInfoProto
         }
 
         extension.serializeClass(classDescriptor, builder)
@@ -231,12 +224,8 @@ class KonanDescriptorSerializer private constructor(
             }
         }
 
-        val requirement = serializeVersionRequirement(descriptor)
-        if (requirement != null) {
-            builder.versionRequirement = requirement
-        }
-        else if (descriptor.isSuspendOrHasSuspendTypesInSignature()) {
-            builder.versionRequirement = writeVersionRequirement(LanguageFeature.Coroutines)
+        if (descriptor.isSuspendOrHasSuspendTypesInSignature()) {
+            builder.sinceKotlinInfo = writeSinceKotlinInfo(LanguageFeature.Coroutines)
         }
         extension.serializeProperty(descriptor, builder)
 
@@ -302,12 +291,8 @@ class KonanDescriptorSerializer private constructor(
             }
         }
 
-        val requirement = serializeVersionRequirement(descriptor)
-        if (requirement != null) {
-            builder.versionRequirement = requirement
-        }
-        else if (descriptor.isSuspendOrHasSuspendTypesInSignature()) {
-            builder.versionRequirement = writeVersionRequirement(LanguageFeature.Coroutines)
+        if (descriptor.isSuspendOrHasSuspendTypesInSignature()) {
+            builder.sinceKotlinInfo = writeSinceKotlinInfo(LanguageFeature.Coroutines)
         }
 
         extension.serializeFunction(descriptor, builder)
@@ -334,12 +319,8 @@ class KonanDescriptorSerializer private constructor(
             builder.addValueParameter(local.valueParameter(valueParameterDescriptor))
         }
 
-        val requirement = serializeVersionRequirement(descriptor)
-        if (requirement != null) {
-            builder.versionRequirement = requirement
-        }
-        else if (descriptor.isSuspendOrHasSuspendTypesInSignature()) {
-            builder.versionRequirement = writeVersionRequirement(LanguageFeature.Coroutines)
+        if (descriptor.isSuspendOrHasSuspendTypesInSignature()) {
+            builder.sinceKotlinInfo = writeSinceKotlinInfo(LanguageFeature.Coroutines)
         }
 
         extension.serializeConstructor(descriptor, builder)
@@ -604,9 +585,9 @@ class KonanDescriptorSerializer private constructor(
             builder.typeTable = typeTableProto
         }
 
-        val versionRequirementTableProto = versionRequirementTable.serialize()
-        if (versionRequirementTableProto != null) {
-            builder.versionRequirementTable = versionRequirementTableProto
+        val sinceKotlinInfoTableProto = sinceKotlinInfoTable.serialize()
+        if (sinceKotlinInfoTableProto != null) {
+            builder.sinceKotlinInfoTable = sinceKotlinInfoTableProto
         }
 
         extension.serializePackage(packageFqName, builder)
@@ -614,62 +595,15 @@ class KonanDescriptorSerializer private constructor(
         return builder
     }
 
-    private fun writeVersionRequirement(languageFeature: LanguageFeature): Int {
+    private fun writeSinceKotlinInfo(languageFeature: LanguageFeature): Int {
         val languageVersion = languageFeature.sinceVersion!!
-        val requirement = ProtoBuf.VersionRequirement.newBuilder().apply {
-            VersionRequirement.Version(languageVersion.major, languageVersion.minor).encode(
+        val requirement = ProtoBuf.SinceKotlinInfo.newBuilder().apply {
+            SinceKotlinInfo.Version(languageVersion.major, languageVersion.minor).encode(
                     writeVersion = { version = it },
                     writeVersionFull = { versionFull = it }
             )
         }
-        return versionRequirementTable[requirement]
-    }
-
-    // Returns index into versionRequirementTable, or null if there's no @RequireKotlin on the descriptor
-    private fun serializeVersionRequirement(descriptor: DeclarationDescriptor): Int? {
-        val annotation = descriptor.annotations.findAnnotation(RequireKotlinNames.FQ_NAME) ?: return null
-        val args = annotation.allValueArguments
-
-        val versionString = (args[RequireKotlinNames.VERSION] as? StringValue)?.value ?: return null
-        val matchResult = KotlinVersionStringAnnotationValueChecker.VERSION_REGEX.matchEntire(versionString) ?: return null
-
-        val major = matchResult.groupValues.getOrNull(1)?.toIntOrNull() ?: return null
-        val minor = matchResult.groupValues.getOrNull(2)?.toIntOrNull() ?: 0
-        val patch = matchResult.groupValues.getOrNull(4)?.toIntOrNull() ?: 0
-
-        val proto = ProtoBuf.VersionRequirement.newBuilder()
-        VersionRequirement.Version(major, minor, patch).encode(
-                writeVersion = { proto.version = it },
-                writeVersionFull = { proto.versionFull = it }
-        )
-
-        val message = (args[RequireKotlinNames.MESSAGE] as? StringValue)?.value
-        if (message != null) {
-            proto.message = stringTable.getStringIndex(message)
-        }
-
-        val level = (args[RequireKotlinNames.LEVEL] as? EnumValue)?.value?.name?.asString()
-        when (level) {
-            DeprecationLevel.ERROR.toString() -> { /* ERROR is the default level */ }
-            DeprecationLevel.WARNING.toString() -> proto.level = ProtoBuf.VersionRequirement.Level.WARNING
-            DeprecationLevel.HIDDEN.toString() -> proto.level = ProtoBuf.VersionRequirement.Level.HIDDEN
-        }
-
-        val versionKind = (args[RequireKotlinNames.VERSION_KIND] as? EnumValue)?.value?.name?.asString()
-        when (versionKind) {
-            ProtoBuf.VersionRequirement.VersionKind.LANGUAGE_VERSION.toString() -> { /* LANGUAGE_VERSION is the default kind */ }
-            ProtoBuf.VersionRequirement.VersionKind.COMPILER_VERSION.toString() ->
-                proto.versionKind = ProtoBuf.VersionRequirement.VersionKind.COMPILER_VERSION
-            ProtoBuf.VersionRequirement.VersionKind.API_VERSION.toString() ->
-                proto.versionKind = ProtoBuf.VersionRequirement.VersionKind.API_VERSION
-        }
-
-        val errorCode = (args[RequireKotlinNames.ERROR_CODE] as? IntValue)?.value
-        if (errorCode != null && errorCode != -1) {
-            proto.errorCode = errorCode
-        }
-
-        return versionRequirementTable[proto]
+        return sinceKotlinInfoTable[requirement]
     }
 
     private fun getClassifierId(descriptor: ClassifierDescriptorWithTypeParameters): Int =
@@ -684,13 +618,13 @@ class KonanDescriptorSerializer private constructor(
     companion object {
         @JvmStatic
         fun createTopLevel(extension: SerializerExtension): KonanDescriptorSerializer {
-            return KonanDescriptorSerializer(null, Interner(), extension, MutableTypeTable(), MutableVersionRequirementTable(),
+            return KonanDescriptorSerializer(null, Interner(), extension, MutableTypeTable(), MutableSinceKotlinInfoTable(),
                                         serializeTypeTableToFunction = false)
         }
 
         @JvmStatic
         fun createForLambda(extension: SerializerExtension): KonanDescriptorSerializer {
-            return KonanDescriptorSerializer(null, Interner(), extension, MutableTypeTable(), MutableVersionRequirementTable(),
+            return KonanDescriptorSerializer(null, Interner(), extension, MutableTypeTable(), MutableSinceKotlinInfoTable(),
                                         serializeTypeTableToFunction = true)
         }
 
@@ -710,7 +644,7 @@ class KonanDescriptorSerializer private constructor(
                     Interner(parentSerializer.typeParameters),
                     parentSerializer.extension,
                     MutableTypeTable(),
-                    MutableVersionRequirementTable(),
+                    MutableSinceKotlinInfoTable(),
                     serializeTypeTableToFunction = false
             )
             for (typeParameter in descriptor.declaredTypeParameters) {

@@ -28,7 +28,7 @@ import org.jetbrains.kotlin.serialization.KonanLinkData
 import org.jetbrains.kotlin.serialization.ProtoBuf
 import org.jetbrains.kotlin.serialization.deserialization.*
 import org.jetbrains.kotlin.serialization.deserialization.descriptors.DeserializedClassDescriptor
-import org.jetbrains.kotlin.serialization.deserialization.descriptors.VersionRequirementTable
+import org.jetbrains.kotlin.serialization.deserialization.descriptors.SinceKotlinInfoTable
 import org.jetbrains.kotlin.types.KotlinType
 
 // This class knows how to construct contexts for 
@@ -74,7 +74,7 @@ class LocalDeclarationDeserializer(val rootDescriptor: DeclarationDescriptor) {
         if (descriptor is KonanPackageFragment) {
             val packageTypeTable = TypeTable(pkg.proto.getPackage().typeTable)
             return components.createContext(
-                pkg, nameResolver, packageTypeTable, VersionRequirementTable.EMPTY, null)
+                pkg, nameResolver, packageTypeTable, SinceKotlinInfoTable.EMPTY, null)
         }
 
         // Only packages and classes have their type tables.
