@@ -302,40 +302,27 @@ class ValuesTests : TestProvider {
         providers.append(self)
         tests.append(TestCase(name: "TestValues", method: withAutorelease(testVals)))
         tests.append(TestCase(name: "TestVars", method: withAutorelease(testVars)))
-    }
-}
-
-func executeTests() {
-    autoreleasepool {
-        do {
-            try testVals()
-            try testVars()
-            try testDoubles()
-            try testLists()
-            try testLazyVal()
-            try testDelegatedProp()
-            try testGetterDelegate()
-            try testNulls()
-            try testAnyVar()
-            try testFunctions()
-            try testFuncType()
-            try testGenericsFoo()
-            try testVararg()
-            try testStrExtFun()
-            try testAnyToString()
-            try testAnyPrint()
-            try testLambda()
-
-            try testInterfaceExtension()
-            try testClassInstances()
-            try testEnum()
-            try testDataClass()
-            try testCompanionObj()
-            try testGenericMapUsage()
-            try testTypedMapUsage()
-        } catch {
-            print("Tests failed: \(error)")
-            abort()
-        }
+        tests.append(TestCase(name: "TestDoubles", method: withAutorelease(testDoubles)))
+        tests.append(TestCase(name: "TestLists", method: withAutorelease(testLists)))
+        tests.append(TestCase(name: "TestLazyValues", method: withAutorelease(testLazyVal)))
+        tests.append(TestCase(name: "TestDelegatedProperties", method: withAutorelease(testDelegatedProp)))
+        tests.append(TestCase(name: "TestGetterDelegate", method: withAutorelease(testGetterDelegate)))
+        tests.append(TestCase(name: "TestNulls", method: withAutorelease(testNulls)))
+        tests.append(TestCase(name: "TestAnyVar", method: withAutorelease(testAnyVar)))
+        tests.append(TestCase(name: "TestFunctions", method: withAutorelease(testFunctions)))
+        tests.append(TestCase(name: "TestFuncType", method: withAutorelease(testFuncType)))
+        tests.append(TestCase(name: "TestGenericsFoo", method: withAutorelease(testGenericsFoo)))
+        tests.append(TestCase(name: "TestVararg", method: withAutorelease(testVararg)))
+        tests.append(TestCase(name: "TestStringExtenstion", method: withAutorelease(testStrExtFun)))
+        tests.append(TestCase(name: "TestAnyToString", method: withAutorelease(testAnyToString)))
+        tests.append(TestCase(name: "TestAnyPrint", method: withAutorelease(testAnyPrint)))
+        tests.append(TestCase(name: "TestLambda", method: withAutorelease(testLambda)))
+        tests.append(TestCase(name: "TestInterfaceExtension", method: withAutorelease(testInterfaceExtension)))
+        tests.append(TestCase(name: "TestClassInstances", method: withAutorelease(testClassInstances)))
+        tests.append(TestCase(name: "TestEnum", method: withAutorelease(testEnum)))
+        tests.append(TestCase(name: "TestDataClass", method: withAutorelease(testDataClass)))
+        tests.append(TestCase(name: "TestCompanionObj", method: withAutorelease(testCompanionObj)))
+        tests.append(TestCase(name: "TestGenericMapUsage", method: withAutorelease(testGenericMapUsage)))
+        tests.append(TestCase(name: "TestTypedMapUsage", method: withAutorelease(testTypedMapUsage)))
     }
 }

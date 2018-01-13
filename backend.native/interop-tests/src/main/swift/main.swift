@@ -52,14 +52,36 @@ func assertFalse(_ value: Bool, _ message: String = "Assertion failed.") throws 
 
 // ---------------- Execution ----------------
 
-private final class Statistics {
+private final class Statistics : CustomStringConvertible {
     var passed: [String] = []
     var failed: [String] = []
+
+    var description: String {
+        return """
+        ---- RESULTS:
+         PASSED: \(passed.count)
+         FAILED: \(failed.count)
+        """
+    }
 
     static let instance = Statistics()
 
     static func getInstance() -> Statistics {
         return instance
+    }
+
+    func start(_ name: String) {
+        print("---- Starting test: \(name)")
+    }
+
+    func passed(_ name: String) {
+        print("---- PASSED test: \(name)")
+        passed.append(name)
+    }
+
+    func failed(_ name: String, error: Error) {
+        print("---- FAILED test: \(name) with error: \(error)")
+        failed.append(name)
     }
 }
 
@@ -73,16 +95,13 @@ struct TestCase {
     }
 
     func run() {
-        // TODO: move printing to Statistics
-        let statistics = Statistics.getInstance()
-        print("---- Starting test: \(name)")
+        let stats = Statistics.getInstance()
+        stats.start(name)
         do {
             try method()
-            print("---- PASSED test: \(name)")
-            statistics.passed.append(name)
+            stats.passed(name)
         } catch {
-            print("---- FAILED test: \(name) with error: \(error)")
-            statistics.failed.append(name)
+            stats.failed(name, error: error)
         }
     }
 }
@@ -110,13 +129,12 @@ private func main() {
     for pr in providers {
         execute(tests: pr.tests)
     }
-    print()
-    print("Tests passed: \(stats.passed.count)")
+    print(stats)
 
     let failed = stats.failed
     if !failed.isEmpty {
         print()
-        print("Tests failed: \(stats.failed.count)")
+        print("Tests failed:")
         for testName in failed {
             print(":: \(testName)")
         }
