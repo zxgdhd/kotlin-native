@@ -34,8 +34,7 @@ func assertEquals<T: Equatable>(actual: T, expected: T,
 func assertEquals<T: Equatable>(actual: [T], expected: [T],
                                 _ message: String = "Assertion failed: arrays not equal") throws {
     try assertEquals(actual: actual.count, expected: expected.count, "Size differs")
-    try assertTrue(actual.elementsEqual(expected),
-            "Arrays elements are not equal")
+    try assertTrue(actual.elementsEqual(expected), "Arrays elements are not equal")
 }
 
 func assertTrue(_ value: Bool, _ message: String = "Assertion failed.") throws {
