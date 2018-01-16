@@ -88,17 +88,13 @@ fun cleanupOutDir() {
 fun compileAndRun(ktl: Path, swift: Path, objc: Path) {
     val kotlinSrcName = ktl.fileName.toString().substringBefore(".kt")
     require(kotlinSrcName.isNotEmpty(), { "Incorrect framework name" })
-    val framework = kotlinSrcName[0].toUpperCase() + kotlinSrcName.substring(1)
-
-    // Produce framework from Kotlin file
-    var options = listOf("-produce", "framework", "-opt")
-    var output = Paths.get(testOutput, framework)
-    CompilerUtils.konanc(listOf(ktl), options, output)
+    val frameworkName = kotlinSrcName[0].toUpperCase() + kotlinSrcName.substring(1)
+    Framework.produce(frameworkName, listOf(ktl), Paths.get(testOutput))
 
     // Compile and run Swift test
     val fwPath = Paths.get(testOutput).toString()
-    options = listOf("-g", "-Xlinker", "-rpath", "-Xlinker", fwPath, "-F", fwPath)
-    output = Paths.get(testOutput, "swift.exec")
+    val options = listOf("-g", "-Xlinker", "-rpath", "-Xlinker", fwPath, "-F", fwPath)
+    val output = Paths.get(testOutput, "swift.exec")
     CompilerUtils.swiftc(listOf(swift, swiftMain), options, output)
 
     val result = ProcessUtils.executeProcess(output.toString())
