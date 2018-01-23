@@ -21,11 +21,15 @@ import org.jetbrains.kotlin.konan.properties.*
 import org.jetbrains.kotlin.konan.target.*
 import org.jetbrains.kotlin.konan.util.*
 
-class ToolConfig(userProvidedTargetName: String?, userProvidedKonanProperties: String?, runnerProvidedKonanHome: String) {
+class ToolConfig(
+        userProvidedTargetName: String?,
+        userProvidedKonanProperties: String? = null,
+        runnerProvidedKonanHome: String = System.getProperty("konan.home")
+) {
 
     private val targetManager = TargetManager(userProvidedTargetName)
     private val host = TargetManager.host
-    private val target = targetManager.target
+    val target = targetManager.target
 
     private val konanHome = File(runnerProvidedKonanHome).absolutePath
     private val konanPropertiesFile = userProvidedKonanProperties ?. File() ?: File(konanHome, "konan/konan.properties")
@@ -34,10 +38,6 @@ class ToolConfig(userProvidedTargetName: String?, userProvidedKonanProperties: S
     private val dependencies = DependencyProcessor.defaultDependenciesRoot
 
     private val targetProperties = KonanProperties(target, properties, dependencies.path)
-
-    val substitutions = mapOf<String, String> (
-        "target" to target.detailedName,
-        "arch" to target.architecture.visibleName)
 
     fun downloadDependencies() = targetProperties.downloadDependencies()
 

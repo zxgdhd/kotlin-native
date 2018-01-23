@@ -249,12 +249,11 @@ private fun processCLib(args: Array<String>): Array<String>? {
 
     val tool = ToolConfig(
         arguments.target,
-        arguments.properties,
-        System.getProperty("konan.home")
+        arguments.properties
     )
     tool.downloadDependencies()
 
-    val def = DefFile(defFile, tool.substitutions)
+    val def = DefFile(defFile, tool.target)
 
     val additionalHeaders = arguments.header
     val additionalCompilerOpts = arguments.compilerOpts

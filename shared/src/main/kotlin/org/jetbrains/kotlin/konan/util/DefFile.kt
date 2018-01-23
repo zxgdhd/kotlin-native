@@ -16,6 +16,7 @@
 
 package org.jetbrains.kotlin.konan.util
 
+import org.jetbrains.kotlin.konan.target.KonanTarget
 import java.io.File
 import java.io.StringReader
 import java.util.*
@@ -23,6 +24,7 @@ import java.util.*
 class DefFile(val file:File?, val config:DefFileConfig, val manifestAddendProperties:Properties, val defHeaderLines:List<String>) {
     private constructor(file0:File?, triple: Triple<Properties, Properties, List<String>>): this(file0, DefFileConfig(triple.first), triple.second, triple.third)
     constructor(file:File?, substitutions: Map<String, String>) : this(file, parseDefFile(file, substitutions))
+    constructor(file: File?, target: KonanTarget) : this(file, target.substitutions)
 
     val name by lazy {
         file?.nameWithoutExtension ?: ""
@@ -153,5 +155,10 @@ fun substitute(properties: Properties, substitutions: Map<String, String>) {
         }
     }
 }
+
+private val KonanTarget.substitutions get() = mapOf(
+        "target" to this.detailedName,
+        "arch" to this.architecture.visibleName
+)
 
 private fun Properties.duplicate() = Properties().apply { putAll(this@duplicate) }

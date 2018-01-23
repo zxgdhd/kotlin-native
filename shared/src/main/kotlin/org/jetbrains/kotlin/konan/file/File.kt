@@ -29,6 +29,8 @@ data class File constructor(internal val javaPath: Path) {
     constructor(path: String): this(Paths.get(path))
     constructor(parent: String, child: String): this(Paths.get(parent, child))
 
+    val javaIoFile get() = javaPath.toFile()
+
     val path: String
         get() = javaPath.toString()
     val absolutePath: String

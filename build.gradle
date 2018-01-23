@@ -245,6 +245,10 @@ task distCompiler(type: Copy) {
     from(konanPropertiesFile) {
         into('konan')
     }
+
+    from(project(':platformLibs').file('src/platform')) {
+        into('platforms')
+    }
 }
 
 task listDist(type: Exec) {

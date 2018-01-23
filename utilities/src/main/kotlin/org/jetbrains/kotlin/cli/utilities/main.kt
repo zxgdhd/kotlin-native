@@ -16,6 +16,7 @@
 
 package org.jetbrains.kotlin.cli.utilities
 
+import org.jetbrains.kotlin.konan.target.TargetManager
 import org.jetbrains.kotlin.cli.bc.main as konancMain
 import org.jetbrains.kotlin.cli.klib.main as klibMain
 
@@ -35,6 +36,8 @@ fun main(args: Array<String>) {
         }
         "klib" ->
             klibMain(utilityArgs)
+        "buildPlatformLibs" ->
+            buildPlatformLibs(TargetManager(utilityArgs.single()))
         else ->
             error("Unexpected utility name")
     }
