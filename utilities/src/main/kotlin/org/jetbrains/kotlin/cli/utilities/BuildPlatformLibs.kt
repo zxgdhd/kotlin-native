@@ -52,6 +52,7 @@ private val KonanTarget.platformLibDefFiles: List<File>
 
 private fun buildPlatformLibs(target: KonanTarget, defFiles: List<File>, destinationRepo: File) {
     lock.withLock {
+        // FIXME: remove file lock
         val lockFile = destinationRepo.child(".lock").javaIoFile.apply { if (!exists()) createNewFile() }
         RandomAccessFile(lockFile, "rw").channel.use { channel ->
             channel.lock().use {
