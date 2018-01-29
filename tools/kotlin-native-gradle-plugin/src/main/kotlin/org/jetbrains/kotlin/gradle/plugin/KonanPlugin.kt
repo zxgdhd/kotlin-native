@@ -104,13 +104,13 @@ internal fun Project.targetIsRequested(target: KonanTarget): Boolean {
 }
 
 /** Looks for task with given name in the given project. Throws [UnknownTaskException] if there's not such task. */
-private fun Project.getTask(name: String): Task = tasks.getByPath(name)
+internal fun Project.getTask(name: String): Task = tasks.getByPath(name)
 
 /**
  * Looks for task with given name in the given project.
  * If such task isn't found, will create it. Returns created/found task.
  */
-private fun Project.getOrCreateTask(name: String): Task = with(tasks) {
+internal fun Project.getOrCreateTask(name: String): Task = with(tasks) {
     findByPath(name) ?: create(name, DefaultTask::class.java)
 }
 
@@ -224,11 +224,11 @@ internal fun dumpProperties(task: Task) {
 }
 
 open class KonanExtension {
-    var targets = mutableListOf("host")
-    var languageVersion: String? = null
-    var apiVersion: String? = null
+    open var targets = mutableListOf("host")
+    open var languageVersion: String? = null
+    open var apiVersion: String? = null
 
-    val jvmArgs = mutableListOf<String>()
+    open val jvmArgs = mutableListOf<String>()
 
     internal val konanTargets: List<KonanTarget>
         get() = targets.map { TargetManager(it).target }.distinct()
