@@ -18,26 +18,23 @@ package org.jetbrains.kotlin.gradle.plugin
 
 import org.gradle.api.InvalidUserDataException
 import org.gradle.api.Project
+import org.gradle.api.artifacts.Configuration
+import org.gradle.api.artifacts.dsl.DependencyHandler
 import org.gradle.api.file.FileCollection
 import org.gradle.api.tasks.Input
-import org.gradle.api.tasks.InputFiles
 import org.gradle.api.tasks.Internal
-import org.jetbrains.kotlin.gradle.plugin.tasks.KonanArtifactWithLibrariesTask
-import org.jetbrains.kotlin.gradle.plugin.tasks.KonanBuildingTask
+import org.jetbrains.kotlin.gradle.plugin.tasks.KonanArtifactWithDependenciesTask
 import org.jetbrains.kotlin.konan.target.KonanTarget
 import org.jetbrains.kotlin.konan.util.visibleName
 import java.io.File
+import javax.inject.Inject
 
-open class KonanLibrariesSpec(val task: KonanArtifactWithLibrariesTask, val project: Project) {
+// TODO: InputFiles? What kind of annotation should be used with Configuration?
+open class Dependencies(val task: KonanArtifactWithDependenciesTask, val configuration: Configuration, val project: Project): DependenciesSpec {
 
-    @InputFiles val files = mutableSetOf<FileCollection>()
+    @Input var noDefaultLibs = false
 
     @Input val namedKlibs = mutableSetOf<String>()
-
-    @Internal val artifacts = mutableListOf<KonanBuildingTask>()
-
-    val artifactFiles: List<File>
-        @InputFiles get() = artifacts.map { it.artifact }
 
     @Internal val explicitRepos = mutableSetOf<File>()
 
@@ -46,20 +43,33 @@ open class KonanLibrariesSpec(val task: KonanArtifactWithLibrariesTask, val proj
             addAll(explicitRepos)
             add(task.destinationDir) // TODO: Check if task is a library - create a Library interface
             add(task.project.konanLibsBaseDir.targetSubdir(target))
-            addAll(artifacts.flatMap { it.libraries.repos })
         }
 
     val target: KonanTarget
         @Internal get() = task.konanTarget
 
-    // DSL Methods
+    //  DSL Methods
+
+    override fun compile(notation: Any) {
+        configuration.dependencies.add(project.dependencies.create(notation))
+    }
+
+    override fun noDefaultLibs(flag: Boolean) {
+        noDefaultLibs = flag
+    }
+
+    // region Deprecated methods. May be some of them (e.g. repos) will be used in the new DSL too.
 
     /** Absolute path */
-    fun file(file: Any)                   = files.add(project.files(file))
-    fun files(vararg files: Any)          = this.files.addAll(files.map { project.files(it) })
-    fun files(collection: FileCollection) = this.files.add(collection)
+    @Deprecated("Use 'compile files(...) instead'")
+    fun file(file: Any)                   = compile(project.files(file))
+    @Deprecated("Use 'compile files(...) instead'")
+    fun files(vararg files: Any)          = compile(project.files(*files))
+    @Deprecated("Use 'compile files(...) instead'")
+    fun files(collection: FileCollection) = compile(collection)
 
     /** The compiler with search the library in repos */
+    // TODO: Implement klib search by the plugin.
     fun klib(lib: String)             = namedKlibs.add(lib)
     fun klibs(vararg libs: String)    = namedKlibs.addAll(libs)
     fun klibs(libs: Iterable<String>) = namedKlibs.addAll(libs)
@@ -76,7 +86,8 @@ open class KonanLibrariesSpec(val task: KonanArtifactWithLibrariesTask, val proj
             throw InvalidUserDataException("Attempt to use a library as its own dependency: " +
                     "${task.name} (in project: ${project.path})")
         }
-        artifacts.add(libraryTask)
+        println("Add dependnecy for configuration ${this.configuration} from configuration: ${libraryTask.artifactConfiguration}")
+        compile(project.files(libraryTask.artifact)) // TODO: Use artifact config. Find a way to pass an artifacts as dependencies
         task.dependsOn(libraryTask)
     }
 
@@ -129,4 +140,6 @@ open class KonanLibrariesSpec(val task: KonanArtifactWithLibrariesTask, val proj
     private fun Project.evaluationDependsOn(another: Project) {
         if (this != another) { evaluationDependsOn(another.path) }
     }
+
+    // endregion.
 }

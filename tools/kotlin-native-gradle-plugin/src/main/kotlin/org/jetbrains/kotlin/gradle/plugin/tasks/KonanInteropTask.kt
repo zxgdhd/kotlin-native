@@ -87,13 +87,16 @@ open class KonanInteropTask: KonanBuildingTask(), KonanInteropSpec {
         addArgs("-copt", includeDirs.allHeadersDirs.map { "-I${it.absolutePath}" })
         addArgs("-headerFilterAdditionalSearchPrefix", includeDirs.headerFilterDirs.map { it.absolutePath })
 
-        addArgs("-repo", libraries.repos.map { it.canonicalPath })
+        // TODO: Get rid of -repo and named klibs - resolve all the dependencies in the plugin.
+        addArgs("-repo", dependencies.repos.map { it.canonicalPath })
+        addArgs("-library", dependencies.namedKlibs)
 
-        addFileArgs("-library", libraries.files)
-        addArgs("-library", libraries.namedKlibs)
-        addArgs("-library", libraries.artifacts.map { it.artifact.canonicalPath })
+        val libraries = dependencies.configuration.files.filter {
+            it.extension == "klib" || it.isDirectory
+        }
+        addArgs("-library", libraries.map { it.absolutePath })
 
-        addKey("-nodefaultlibs", noDefaultLibs)
+        addKey("-nodefaultlibs", dependencies.noDefaultLibs)
 
         addAll(extraOpts)
     }

@@ -20,6 +20,7 @@ import org.gradle.api.file.FileCollection
 import org.gradle.api.tasks.*
 import org.jetbrains.kotlin.gradle.plugin.*
 import org.jetbrains.kotlin.konan.target.CompilerOutputKind
+import org.jetbrains.kotlin.konan.target.KonanTarget
 import org.jetbrains.kotlin.konan.util.visibleName
 import java.io.File
 
@@ -83,11 +84,19 @@ abstract class KonanCompileTask: KonanBuildingTask(), KonanCompileSpec {
     override fun buildArgs() = mutableListOf<String>().apply {
         addArg("-output", artifact.canonicalPath)
 
-        addArgs("-repo", libraries.repos.map { it.canonicalPath })
+        // TODO: Get rid of -repo and named klibs - resolve all the dependencies in the plugin.
+        addArgs("-repo", dependencies.repos.map { it.canonicalPath })
+        addArgs("-library", dependencies.namedKlibs)
 
-        addFileArgs("-library", libraries.files)
-        addArgs("-library", libraries.namedKlibs)
-        addArgs("-library", libraries.artifacts.map { it.artifact.canonicalPath })
+        println(dependencies.configuration.name)
+        println(dependencies.configuration.isTransitive)
+        println(dependencies.configuration.resolvedConfiguration.files)
+
+        val libraries = dependencies.configuration.files.filter {
+            it.extension == "klib" || it.isDirectory
+        }
+        addArgs("-library", libraries.map { it.absolutePath })
+
 
         addFileArgs("-nativelibrary", nativeLibraries)
         addArg("-produce", produce.cliOption)
@@ -105,7 +114,7 @@ abstract class KonanCompileTask: KonanBuildingTask(), KonanCompileSpec {
         addKey("-opt", enableOptimizations)
         addKey("-ea", enableAssertions)
         addKey("--time", measureTime)
-        addKey("-nodefaultlibs", noDefaultLibs)
+        addKey("-nodefaultlibs", dependencies.noDefaultLibs)
 
         addAll(extraOpts)
 
@@ -180,6 +189,11 @@ open class KonanCompileProgramTask: KonanCompileTask() {
 
 open class KonanCompileDynamicTask: KonanCompileTask() {
     override val produce: Produce  get() = Produce.DYNAMIC
+
+    override fun init(destinationDir: File, artifactName: String, target: KonanTarget) {
+        super.init(destinationDir, artifactName, target)
+        artifactConfiguration.outgoing.artifact(headerFile)
+    }
 
     val headerFile: File
         @OutputFile get() = destinationDir.resolve("$artifactPrefix${artifactName}_api.h")

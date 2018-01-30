@@ -20,19 +20,35 @@ import groovy.lang.Closure
 import org.gradle.api.Action
 import org.gradle.api.file.FileCollection
 
-interface KonanArtifactSpec {
-    fun artifactName(name: String)
-}
-
-interface KonanArtifactWithLibrariesSpec: KonanArtifactSpec {
-    fun libraries(closure: Closure<Unit>)
-    fun libraries(action: Action<KonanLibrariesSpec>)
-    fun libraries(configure: KonanLibrariesSpec.() -> Unit)
+// TODO: Consider using ComponentDependencies from Gradle 4.5
+interface DependenciesSpec {
+    fun compile(notation: Any)
 
     fun noDefaultLibs(flag: Boolean)
 }
 
-interface KonanBuildingSpec: KonanArtifactWithLibrariesSpec {
+interface KonanArtifactSpec {
+    fun artifactName(name: String)
+}
+
+// TODO: Remove it when we have switched to a configuration model
+interface KonanArtifactWithDependenciesSpec: KonanArtifactSpec {
+    @Deprecated("Use dependencies block instead")
+    fun libraries(closure: Closure<Unit>)
+    @Deprecated("Use dependencies block instead")
+    fun libraries(action: Action<Dependencies>)
+    @Deprecated("Use dependencies block instead")
+    fun libraries(configure: Dependencies.() -> Unit)
+
+    @Deprecated("Use dependencies.noDefaultLibs instead")
+    fun noDefaultLibs(flag: Boolean)
+
+    fun dependencies(closure: Closure<Unit>)
+    fun dependencies(action: Action<DependenciesSpec>)
+    fun dependencies(configure: DependenciesSpec.() -> Unit)
+}
+
+interface KonanBuildingSpec: KonanArtifactWithDependenciesSpec {
     fun dumpParameters(flag: Boolean)
 
     fun extraOpts(vararg values: Any)

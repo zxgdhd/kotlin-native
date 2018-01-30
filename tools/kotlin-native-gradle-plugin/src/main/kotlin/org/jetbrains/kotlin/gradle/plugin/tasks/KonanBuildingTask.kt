@@ -24,7 +24,7 @@ import org.jetbrains.kotlin.konan.target.KonanTarget
 import java.io.File
 
 /** Base class for both interop and compiler tasks. */
-abstract class KonanBuildingTask: KonanArtifactWithLibrariesTask(), KonanBuildingSpec {
+abstract class KonanBuildingTask: KonanArtifactWithDependenciesTask(), KonanBuildingSpec {
 
     internal abstract val toolRunner: KonanToolRunner
 

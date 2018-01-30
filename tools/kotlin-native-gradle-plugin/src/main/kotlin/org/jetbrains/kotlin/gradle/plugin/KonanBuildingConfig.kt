@@ -49,6 +49,9 @@ abstract class KonanBuildingConfig<T: KonanBuildingTask>(private val name_: Stri
     private val konanTargets: Iterable<KonanTarget>
         get() = targets.map { TargetManager(it).target }.distinct()
 
+    // TODO: Use Gradle's Names
+    private val baseConfiguration = project.configurations.create("${name}Compile")
+
     init {
         for (target in konanTargets) {
             if (!target.enabled) {
@@ -92,6 +95,7 @@ abstract class KonanBuildingConfig<T: KonanBuildingTask>(private val name_: Stri
     protected fun createTask(target: KonanTarget): T =
             project.tasks.create(generateTaskName(target), type) {
                 it.init(defaultBaseDir.targetSubdir(target), name, target)
+                it.dependencies.configuration.extendsFrom(baseConfiguration)
                 it.group = BasePlugin.BUILD_GROUP
                 it.description = generateTaskDescription(it)
             } ?: throw Exception("Cannot create task for target: ${target.visibleName}")
@@ -131,10 +135,18 @@ abstract class KonanBuildingConfig<T: KonanBuildingTask>(private val name_: Stri
 
     fun baseDir(dir: Any) = forEach { it.destinationDir(project.file(dir).targetSubdir(it.konanTarget)) }
 
+    @Deprecated("Libraries will be replaced with configuration model")
     override fun libraries(closure: Closure<Unit>) = forEach { it.libraries(closure) }
-    override fun libraries(action: Action<KonanLibrariesSpec>) = forEach { it.libraries(action) }
-    override fun libraries(configure: KonanLibrariesSpec.() -> Unit) = forEach { it.libraries(configure) }
+    @Deprecated("Libraries will be replaced with configuration model")
+    override fun libraries(action: Action<Dependencies>) = forEach { it.libraries(action) }
+    @Deprecated("Libraries will be replaced with configuration model")
+    override fun libraries(configure: Dependencies.() -> Unit) = forEach { it.libraries(configure) }
 
+    override fun dependencies(closure: Closure<Unit>) = TODO()
+    override fun dependencies(action: Action<DependenciesSpec>) = TODO()
+    override fun dependencies(configure: DependenciesSpec.() -> Unit) = TODO()
+
+    @Deprecated("Libraries will be replaced with configuration model")
     override fun noDefaultLibs(flag: Boolean) = forEach { it.noDefaultLibs(flag) }
 
     override fun dumpParameters(flag: Boolean) = forEach { it.dumpParameters(flag) }

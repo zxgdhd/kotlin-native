@@ -115,9 +115,8 @@ open class KonanGenerateCMakeTask : DefaultTask() {
 
     private val KonanCompileTask.cMakeLibraries: String
         get() = mutableListOf<String>().apply {
-            addAll(libraries.artifacts.map { it.artifactName })
-            addAll(libraries.namedKlibs)
-            addAll(libraries.files.flatMap { it.files }.map { it.canonicalPath.crossPlatformPath })
+            addAll(dependencies.namedKlibs)
+            addAll(dependencies.configuration.files.map { it.canonicalPath.crossPlatformPath })
         }.joinToString(" ")
 
     private val KonanCompileTask.cMakeLinkerOpts: String
