@@ -18,8 +18,8 @@ var str = "Kotlin String"
 var strAsAny: Any = "Kotlin String as Any"
 
 // MIN/MAX values as Numbers
-var minDoubleVal: kotlin.Number = Double.MIN_VALUE
-var maxDoubleVal: kotlin.Number = Double.MAX_VALUE
+var minDoubleVal: Double = Double.MIN_VALUE
+var maxDoubleVal: Double = Double.MAX_VALUE
 
 // Infinities and NaN
 val nanDoubleVal: Double = Double.NaN
