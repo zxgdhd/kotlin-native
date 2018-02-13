@@ -288,6 +288,225 @@ func testTypedMapUsage() throws {
 */
 }
 
+func zeroTo(_ n: Int32) -> ValuesStdlibArray { return ValuesStdlibArray(size: n) { $0 } }
+
+func testList() throws {
+    let elements = zeroTo(5)
+    elements.set(index: 1, value: nil)
+    let list = Values.list(elements: elements) as! NSArray
+    try assertEquals(actual: list.object(at: 2) as! NSNumber, expected: NSNumber(value: 2))
+    try assertEquals(actual: list.object(at: 1) as! NSNull, expected: NSNull())
+    try assertEquals(actual: list.count, expected: 5)
+}
+
+func testMutableList() throws {
+    let kotlinList = Values.emptyMutableList() as! NSMutableArray
+    let nsList = NSMutableArray()
+
+    func apply<T : Equatable>(op: (NSMutableArray)->T) throws {
+        let actual = op(kotlinList)
+        let expected = op(nsList)
+        try assertEquals(actual: actual, expected: expected)
+        try assertEquals(actual: kotlinList, expected: nsList)
+        try assertEquals(actual: kotlinList.hash, expected: nsList.hash)
+    }
+
+    func applyVoid(op: (NSMutableArray)->Void) throws {
+        op(kotlinList)
+        op(nsList)
+        try assertEquals(actual: kotlinList, expected: nsList)
+        try assertEquals(actual: kotlinList.hash, expected: nsList.hash)
+    }
+
+    try apply { $0.count }
+    try applyVoid { $0.insert(0, at: 0) }
+    try applyVoid { $0.insert(1, at: 0) }
+    try applyVoid { $0.insert(2, at: 1) }
+    try applyVoid { $0.removeObject(at: 0) }
+    try applyVoid { $0.add("foo") }
+    try applyVoid { $0.removeLastObject() }
+    try applyVoid { $0.replaceObject(at: 0, with: "bar") }
+    let NULL: Any? = nil
+    try applyVoid { $0.add(NULL as Any) }
+    try applyVoid { $0.insert(NULL as Any, at: 2) }
+    try applyVoid { $0.replaceObject(at: 1, with: NULL as Any) }
+    try apply { $0.count }
+}
+
+func testMutableSet() throws {
+    let kotlinSet = Values.emptyMutableSet() as! NSMutableSet
+    let nsSet = NSMutableSet()
+
+    func apply<T : Equatable>(op: (NSMutableSet)->T) throws {
+        let actual = op(kotlinSet)
+        let expected = op(nsSet)
+        try assertEquals(actual: actual, expected: expected)
+        try assertEquals(actual: kotlinSet, expected: nsSet)
+        try assertEquals(actual: kotlinSet.hash, expected: nsSet.hash)
+    }
+
+    func applyVoid(op: (NSMutableSet)->Void) throws {
+        op(kotlinSet)
+        op(nsSet)
+        try assertEquals(actual: kotlinSet, expected: nsSet)
+        try assertEquals(actual: kotlinSet.hash, expected: nsSet.hash)
+    }
+
+    try apply { $0.count }
+    try applyVoid { $0.add("foo") }
+    try applyVoid { $0.add("bar") }
+    try applyVoid { $0.remove("baz") }
+    try applyVoid { $0.add("baz") }
+    try applyVoid { $0.add(ValuesTripleVals(first: 1, second: 2, third: 3)) }
+    try apply { $0.member(ValuesTripleVals(first: 1, second: 2, third: 3)) as! ValuesTripleVals }
+    try apply { $0.member(42) == nil }
+    try applyVoid { $0.remove(ValuesTripleVals(first: 1, second: 2, third: 3)) }
+
+    let NULL0: Any? = nil
+    let NULL = NULL0 as Any
+
+    try applyVoid { $0.add(NULL) }
+    try apply { $0.member(NULL) == nil }
+    try apply { $0.member(NULL) as! NSObject }
+    try applyVoid { $0.remove(NULL) }
+    try apply { $0.member(NULL) == nil }
+
+    try apply { NSSet(array: $0.objectEnumerator().remainingObjects()) }
+
+    try apply { $0.count }
+}
+
+func testMutableMap() throws {
+    // TODO: test KotlinMutableSet/Dictionary constructors
+    let kotlinMap = Values.emptyMutableMap() as! NSMutableDictionary
+    let nsMap = NSMutableDictionary()
+
+    func apply<T : Equatable>(op: (NSMutableDictionary)->T) throws {
+        let actual = op(kotlinMap)
+        let expected = op(nsMap)
+        try assertEquals(actual: actual, expected: expected)
+        try assertEquals(actual: kotlinMap, expected: nsMap)
+        try assertEquals(actual: kotlinMap.hash, expected: nsMap.hash)
+    }
+
+    func applyVoid(op: (NSMutableDictionary) throws -> Void) throws {
+        try op(kotlinMap)
+        try op(nsMap)
+        try assertEquals(actual: kotlinMap, expected: nsMap)
+        try assertEquals(actual: kotlinMap.hash, expected: nsMap.hash)
+    }
+
+    try apply { $0.count }
+    try apply { $0.object(forKey: 42) == nil }
+    try applyVoid { $0.setObject(42, forKey: 42 as NSNumber) }
+    try applyVoid { $0.setObject(17, forKey: "foo" as NSString) }
+    let triple = ValuesTripleVals(first: 3, second: 2, third: 1)
+    try applyVoid { $0.setObject("bar", forKey: triple) }
+    try applyVoid { $0.removeObject(forKey: 42) }
+    try apply { $0.count }
+    try apply { $0.object(forKey: 42) == nil }
+    try apply { $0.object(forKey: "foo") as! NSObject  }
+    try apply { $0.object(forKey: triple) as! NSObject }
+
+    try apply { NSSet(array: $0.keyEnumerator().remainingObjects()) }
+
+    let NULL0: Any? = nil
+    let NULL = NULL0 as Any
+
+    try apply { $0.object(forKey: NULL) == nil }
+
+
+    try applyVoid { $0.setObject(42, forKey: NULL as! NSCopying) }
+    try applyVoid { $0.setObject(NULL, forKey: "baz" as NSString) }
+    try apply { $0.object(forKey: NULL) as! NSObject }
+    try apply { $0.object(forKey: "baz") as! NSObject }
+
+    try apply { NSSet(array: $0.keyEnumerator().remainingObjects()) }
+
+    try applyVoid { $0.removeObject(forKey: NULL) }
+    try applyVoid { $0.removeObject(forKey: "baz") }
+
+    try applyVoid { $0.removeAllObjects() }
+
+    let myKey = MyKey()
+    try applyVoid { $0.setObject(myKey, forKey: myKey) }
+    try applyVoid {
+        let key = $0.allKeys[0] as! MyKey
+        let value = $0.allValues[0] as! MyKey
+        try assertFalse(key === myKey)
+        try assertTrue(value === myKey)
+    }
+
+}
+
+@objc class MyKey : NSObject, NSCopying {
+    override var hash: Int {
+        return 42
+    }
+
+    override func isEqual(_ object: Any?) -> Bool {
+        return object is MyKey
+    }
+
+    func copy(with: NSZone? = nil) -> Any {
+        return MyKey()
+    }
+
+}
+
+
+
+extension NSEnumerator {
+    func remainingObjects() -> [Any?] {
+        var result = [Any?]()
+        while (true) {
+            if let next = self.nextObject() {
+                result.append(next as AnyObject as Any?) 
+            } else {
+                break
+            }
+        }
+        return result
+    }
+}
+
+func testSet() throws {
+    let elements = ValuesStdlibArray(size: 2) { index in nil }
+    elements.set(index: 0, value: nil)
+    elements.set(index: 1, value: 42)
+    let set = Values.set(elements: elements) as! NSSet
+    try assertEquals(actual: set.count, expected: 2)
+    try assertEquals(actual: set.member(NSNull()) as! NSNull, expected: NSNull())
+    try assertEquals(actual: set.member(42) as! NSNumber, expected: NSNumber(value: 42 as Int32))
+    try assertTrue(set.member(17) == nil)
+    try assertFalse(set.member(42) as AnyObject === NSNumber(value: 42 as Int32))
+    try assertTrue(set.contains(42))
+    try assertTrue(set.contains(nil as Any?))
+    try assertFalse(set.contains(17))
+
+    try assertEquals(actual: NSSet(array: set.objectEnumerator().remainingObjects()), expected: NSSet(array: [nil, 42] as [AnyObject]))
+}
+
+func testMap() throws {
+    let elements = ValuesStdlibArray(size: 6) { index in nil }
+    elements.set(index: 0, value: nil)
+    elements.set(index: 1, value: 42)
+    elements.set(index: 2, value: "foo")
+    elements.set(index: 3, value: "bar")
+    elements.set(index: 4, value: 42)
+    elements.set(index: 5, value: nil)
+
+    let map = Values.map(keysAndValues: elements) as! NSDictionary
+    try assertEquals(actual: map.count, expected: 3)
+
+    try assertEquals(actual: map.object(forKey: NSNull()) as! NSNumber, expected: NSNumber(value: 42))
+    try assertEquals(actual: map.object(forKey: "foo") as! String, expected: "bar")
+    try assertEquals(actual: map.object(forKey: 42) as! NSNull, expected: NSNull())
+    try assertTrue(map.object(forKey: "bar") == nil)
+
+    try assertEquals(actual: NSSet(array: map.keyEnumerator().remainingObjects()), expected: NSSet(array: [nil, 42, "foo"] as [AnyObject]))
+}
+
 // -------- Execution of the test --------
 
 private func withAutorelease( _ method: @escaping () throws -> Void) -> () throws -> Void {
@@ -301,6 +520,12 @@ class ValuesTests : TestProvider {
 
     init() {
         providers.append(self)
+        tests.append(TestCase(name: "TestList", method: withAutorelease(testList)))
+        tests.append(TestCase(name: "TestMutableList", method: withAutorelease(testMutableList)))
+        tests.append(TestCase(name: "TestSet", method: withAutorelease(testSet)))
+        tests.append(TestCase(name: "TestMutableSet", method: withAutorelease(testMutableSet)))
+        tests.append(TestCase(name: "TestMap", method: withAutorelease(testMap)))
+        tests.append(TestCase(name: "TestMutableMap", method: withAutorelease(testMutableMap)))
         tests.append(TestCase(name: "TestValues", method: withAutorelease(testVals)))
         tests.append(TestCase(name: "TestVars", method: withAutorelease(testVars)))
         tests.append(TestCase(name: "TestDoubles", method: withAutorelease(testDoubles)))

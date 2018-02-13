@@ -187,3 +187,16 @@ fun createTypedMutableMap() = mutableMapOf<Int, String>()
 
 typealias EE = Enumeration
 fun EE.getAnswer() : EE  = Enumeration.ANSWER
+
+
+fun list(vararg elements: Any?): Any = listOf(*elements)
+fun set(vararg elements: Any?): Any = setOf(*elements)
+fun map(vararg keysAndValues: Any?): Any = mutableMapOf<Any?, Any?>().apply {
+    (0 until keysAndValues.size step 2).forEach {index -> 
+        this[keysAndValues[index]] = keysAndValues[index + 1]
+    }
+}
+
+fun emptyMutableList(): Any = mutableListOf<Any?>()
+fun emptyMutableSet(): Any = mutableSetOf<Any?>()
+fun emptyMutableMap(): Any = mutableMapOf<Any?, Any?>()
