@@ -1136,13 +1136,7 @@ void UpdateRef(ObjHeader** location, const ObjHeader* object) {
   ObjHeader* old = *location;
   UPDATE_REF_EVENT(memoryState, old, object, location)
   if (old != object) {
-    if (object != nullptr) {
-      AddRef(object);
-    }
     *const_cast<const ObjHeader**>(location) = object;
-    if (old != nullptr) {
-      ReleaseRef(old);
-    }
   }
 }
 
@@ -1152,14 +1146,14 @@ void EnterFrame(ObjHeader** start, int parameters, int count) {
 
 void LeaveFrame(ObjHeader** start, int parameters, int count) {
   MEMORY_LOG("LeaveFrame %p .. %p\n", start, start + count + parameters)
-  ReleaseRefs(start + parameters + kFrameOverlaySlots, count - kFrameOverlaySlots - parameters);
-  if (*start != nullptr) {
-    auto arena = initedArena(start);
-    MEMORY_LOG("LeaveFrame: free arena %p\n", arena)
-    arena->Deinit();
-    konanFreeMemory(arena);
-    MEMORY_LOG("LeaveFrame: free arena done %p\n", arena)
-  }
+//  ReleaseRefs(start + parameters + kFrameOverlaySlots, count - kFrameOverlaySlots - parameters);
+//  if (*start != nullptr) {
+//    auto arena = initedArena(start);
+//    MEMORY_LOG("LeaveFrame: free arena %p\n", arena)
+//    arena->Deinit();
+//    konanFreeMemory(arena);
+//    MEMORY_LOG("LeaveFrame: free arena done %p\n", arena)
+//  }
 }
 
 void ReleaseRefs(ObjHeader** start, int count) {
