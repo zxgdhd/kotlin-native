@@ -201,7 +201,7 @@ internal class IrPrivateFunctionCallImpl(startOffset: Int,
                                          override val totalFunctions: Int,
                                          override val functionIndex: Int
 ) : IrPrivateFunctionCall,
-        IrCallWithIndexedArgumentsBase(startOffset, endOffset, type, symbol.descriptor.valueParameters.size, typeArguments) {
+        IrCallWithIndexedArgumentsBase(startOffset, endOffset, type, symbol.descriptor.valueParameters.size, typeArguments?.size ?: 0) {
 
     override val superQualifierSymbol: IrClassSymbol?
         get() = null
