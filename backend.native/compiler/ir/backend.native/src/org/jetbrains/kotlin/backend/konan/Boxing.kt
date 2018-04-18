@@ -89,7 +89,7 @@ private fun ValueType.initCache(context: Context, cacheName: String,
             .setConstant(true)
     val staticData = context.llvm.staticData
     val values = (start..end).map { staticData.createInitializer(kotlinType, createConstant(it)) }
-    val llvmBoxType = structType(context.llvm.runtime.objHeaderType, this.llvmType)
+    val llvmBoxType = structType(context.llvm.runtime.objHeaderType, this.llvmMemoryType)
     staticData.placeGlobalConstArray(cacheName, llvmBoxType, values, true).llvm
 }
 

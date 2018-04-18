@@ -729,13 +729,20 @@ internal class CodeGeneratorVisitor(val context: Context, val lifetimes: Map<IrE
         debugFieldDeclaration(declaration)
         val descriptor = declaration
         if (context.needGlobalInit(declaration)) {
-            val type = codegen.getLLVMType(descriptor.type)
+            val type = codegen.getLLVMMemoryType(descriptor.type)
             val globalProperty = context.llvmDeclarations.forStaticField(descriptor).storage
             val initializer = declaration.initializer?.expression as? IrConst<*>
-            if (initializer != null)
-                LLVMSetInitializer(globalProperty, evaluateExpression(initializer))
-            else
-                LLVMSetInitializer(globalProperty, LLVMConstNull(type))
+            val initialValue = if (initializer != null) {
+                if (initializer.kind == IrConstKind.Boolean) {
+                    val value = (if (initializer.value == true) 1 else 0).toLong()
+                    LLVMConstInt(int8Type, value, 0)
+                } else {
+                    evaluateConst(initializer)
+                }
+            } else {
+                LLVMConstNull(type)
+            }
+            LLVMSetInitializer(globalProperty, initialValue)
             context.llvm.fileInitializers.add(declaration)
 
             // (Cannot do this before the global is initialized).
@@ -1382,23 +1389,23 @@ internal class CodeGeneratorVisitor(val context: Context, val lifetimes: Map<IrE
 
     private fun evaluateGetField(value: IrGetField): LLVMValueRef {
         context.log{"evaluateGetField               : ${ir2string(value)}"}
-        if (value.descriptor.dispatchReceiverParameter != null) {
+        val loadedValue = if (value.descriptor.dispatchReceiverParameter != null) {
             val thisPtr = evaluateExpression(value.receiver!!)
-            return functionGenerationContext.loadSlot(
-                    fieldPtrOfClass(thisPtr, value.symbol.owner), value.descriptor.isVar())
-        }
-        else {
-            assert (value.receiver == null)
+            functionGenerationContext.loadSlot(
+                    fieldPtrOfClass(thisPtr, value.symbol.owner), value.descriptor.isVar)
+        } else {
+            assert(value.receiver == null)
             val ptr = context.llvmDeclarations.forStaticField(value.symbol.owner).storage
-            return functionGenerationContext.loadSlot(ptr, value.descriptor.isVar())
+            functionGenerationContext.loadSlot(ptr, value.descriptor.isVar)
         }
+        return functionGenerationContext.fromMemory(loadedValue, codegen.getLLVMType(value.type))
     }
 
     //-------------------------------------------------------------------------//
 
     private fun evaluateSetField(value: IrSetField): LLVMValueRef {
         context.log{"evaluateSetField               : ${ir2string(value)}"}
-        val valueToAssign = evaluateExpression(value.value)
+        val valueToAssign = functionGenerationContext.toMemory(evaluateExpression(value.value))
         if (value.descriptor.dispatchReceiverParameter != null) {
             val thisPtr = evaluateExpression(value.receiver!!)
             functionGenerationContext.call(context.llvm.mutationCheck,
