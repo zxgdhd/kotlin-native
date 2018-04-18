@@ -293,14 +293,14 @@ internal class FunctionGenerationContext(val function: LLVMValueRef,
         }
     }
 
-    fun fromMemory(value: LLVMValueRef, destType: LLVMTypeRef): LLVMValueRef =
+    fun fromMemoryType(value: LLVMValueRef, destType: LLVMTypeRef): LLVMValueRef =
             if (value.type == int8Type && destType == int1Type){
                 trunc(value, int1Type)
             } else {
                 value
             }
 
-    fun toMemory(value: LLVMValueRef): LLVMValueRef =
+    fun toMemoryType(value: LLVMValueRef): LLVMValueRef =
             if (value.type == int1Type) {
                 zext(value, int8Type)
             } else {

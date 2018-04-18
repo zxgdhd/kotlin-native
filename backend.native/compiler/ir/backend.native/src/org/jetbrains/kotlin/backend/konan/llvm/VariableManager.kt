@@ -36,10 +36,10 @@ internal class VariableManager(val functionGenerationContext: FunctionGeneration
     inner class SlotRecord(val address: LLVMValueRef, val type: LLVMTypeRef, val isVar: Boolean) : Record {
         override fun load() : LLVMValueRef {
             val loadedValue = functionGenerationContext.loadSlot(address, isVar)
-            return functionGenerationContext.fromMemory(loadedValue, type)
+            return functionGenerationContext.fromMemoryType(loadedValue, type)
         }
         override fun store(value: LLVMValueRef) {
-            val valueToStore = functionGenerationContext.toMemory(value)
+            val valueToStore = functionGenerationContext.toMemoryType(value)
             functionGenerationContext.storeAny(valueToStore, address)
         }
         override fun address() : LLVMValueRef = this.address
@@ -90,7 +90,7 @@ internal class VariableManager(val functionGenerationContext: FunctionGeneration
         val type = functionGenerationContext.getLLVMType(descriptor.type)
         val slot = functionGenerationContext.alloca(memoryType, descriptor.name.asString(), variableLocation)
         if (value != null) {
-            val valueToStore = functionGenerationContext.toMemory(value)
+            val valueToStore = functionGenerationContext.toMemoryType(value)
             functionGenerationContext.storeAny(valueToStore, slot)
         }
         variables.add(SlotRecord(slot, type, isVar))
