@@ -1,8 +1,10 @@
 package org.jetbrains.kotlin
 
+import groovy.lang.Closure
 import org.gradle.api.Action
 import org.gradle.api.DefaultTask
 import org.gradle.api.Project
+import org.gradle.api.Task
 import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.SourceSet
 import org.gradle.api.tasks.SourceSetContainer
@@ -34,6 +36,14 @@ open class FrameworkTest : DefaultTask() {
         ((project.findProperty("sourceSets") as SourceSetContainer)
                 .getByName("testOutputFramework") as SourceSet).output.dirs.singleFile.absolutePath
                 ?: throw RuntimeException("Empty sourceSet")
+    }
+
+    override fun configure(config: Closure<*>): Task {
+        super.configure(config)
+        dependsOn(project.rootProject.tasks.getByName("${project.testTarget().name}CrossDist"))
+        check(::frameworkName.isInitialized, { "Framework name should be set" })
+        dependsOn(project.tasks.getByName("compileKonan$frameworkName"))
+        return this
     }
 
     @TaskAction
