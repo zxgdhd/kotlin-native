@@ -95,7 +95,7 @@ private fun ValueType.initCache(context: Context, cacheName: String,
 
 private fun ValueType.createConstant(value: Int) =
     constValue(when (this) {
-        ValueType.BOOLEAN   -> LLVMConstInt(LLVMInt1Type(),  (value > 0).toByte().toLong(), 1)!!
+        ValueType.BOOLEAN   -> LLVMConstInt(LLVMInt8Type(),  (value > 0).toByte().toLong(), 1)!!
         ValueType.BYTE      -> LLVMConstInt(LLVMInt8Type(),  value.toByte().toLong(),  1)!!
         ValueType.CHAR      -> LLVMConstInt(LLVMInt16Type(), value.toChar().toLong(),  0)!!
         ValueType.SHORT     -> LLVMConstInt(LLVMInt16Type(), value.toShort().toLong(), 1)!!

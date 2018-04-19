@@ -754,10 +754,13 @@ internal class CAdapterGenerator(
         output("#define KONAN_${prefix.toUpperCase()}_H")
         // TODO: use namespace for C++ case?
         output("""
+        #ifndef __cplusplus
+        #include <stdbool.h>
+        #endif
         #ifdef __cplusplus
         extern "C" {
         #endif""".trimIndent())
-        output("typedef unsigned char   ${prefix}_KBoolean;")
+        output("typedef bool            ${prefix}_KBoolean;")
         output("typedef char            ${prefix}_KByte;")
         output("typedef unsigned short  ${prefix}_KChar;")
         output("typedef short           ${prefix}_KShort;")
@@ -879,7 +882,8 @@ internal class CAdapterGenerator(
     )
 
     private val primitiveTypeMapping = mapOf(
-            ValueType.BOOLEAN to "${prefix}_KByte",
+            ValueType.BOOLEAN to "${prefix}_KBoolean",
+            ValueType.BYTE to "${prefix}_KByte",
             ValueType.SHORT to "${prefix}_KShort",
             ValueType.INT to "${prefix}_KInt",
             ValueType.LONG to "${prefix}_KLong",
