@@ -733,12 +733,7 @@ internal class CodeGeneratorVisitor(val context: Context, val lifetimes: Map<IrE
             val globalProperty = context.llvmDeclarations.forStaticField(descriptor).storage
             val initializer = declaration.initializer?.expression as? IrConst<*>
             val initialValue = if (initializer != null) {
-                if (initializer.kind == IrConstKind.Boolean) {
-                    val value = (if (initializer.value == true) 1 else 0).toLong()
-                    LLVMConstInt(int8Type, value, 0)
-                } else {
-                    evaluateConst(initializer)
-                }
+                evaluateConstOfMemoryType(initializer)
             } else {
                 LLVMConstNull(type)
             }
@@ -747,6 +742,15 @@ internal class CodeGeneratorVisitor(val context: Context, val lifetimes: Map<IrE
 
             // (Cannot do this before the global is initialized).
             LLVMSetLinkage(globalProperty, LLVMLinkage.LLVMInternalLinkage)
+        }
+    }
+
+    private fun evaluateConstOfMemoryType(const: IrConst<*>): LLVMValueRef {
+        return if (const.kind == IrConstKind.Boolean) {
+            val value = ((const.value == true).toByte()).toLong()
+            LLVMConstInt(ValueType.BOOLEAN.llvmMemoryType, value, 0)!!
+        } else {
+            evaluateConst(const)
         }
     }
 
