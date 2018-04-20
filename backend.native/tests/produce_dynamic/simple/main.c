@@ -19,7 +19,7 @@ int main(void) {
     const char* string = __ kotlin.root.getString();
 
     __ kotlin.root.hello();
-    // should behave same as _Bool type
+    // should behave same as _Bool type.
     __ kotlin.root.printBoolean(0.5);
     __ kotlin.root.Base.foo(base);
     __ kotlin.root.Base.fooParam(base, "a", 1);
